@@ -1,0 +1,41 @@
+<!-- 模拟豆瓣短评页结构的本地 fixture（开发用，非真实页面）。
+     真实页面请用 scripts/save_douban_page.py 保存为 douban_comments.html，
+     若豆瓣改版，用它来校准 douban.py 里的选择器。 -->
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>肖申克的救赎 短评</title></head>
+<body>
+<div id="comments" class="mod-bd">
+  <div class="comment-item" data-cid="1">
+    <div class="comment">
+      <h3>
+        <span class="comment-vote"><span class="votes vote-count">3</span></span>
+        <span class="comment-info">
+          <a href="https://www.douban.com/people/u1/" class="">观众甲</a>
+          <span><span class="allstar40 rating" title="推荐"></span></span>
+          <span class="comment-time" title="2024-01-01 10:00:00">01-01 10:00</span>
+        </span>
+      </h3>
+      <p class="comment-content"><span class="short">片子很好看，节奏紧凑，希望的力量很打动人。</span></p>
+    </div>
+  </div>
+  <div class="comment-item" data-cid="2">
+    <div class="comment">
+      <h3>
+        <span class="comment-info">
+          <a href="https://www.douban.com/people/u2/" class="">观众乙</a>
+          <span><span class="allstar10 rating" title="很差"></span></span>
+          <span class="comment-time" title="2024-01-02 12:00:00">01-02 12:00</span>
+        </span>
+      </h3>
+      <p class="comment-content"><span class="short">太无聊了，看不下去。</span></p>
+    </div>
+  </div>
+  <div class="comment-item" data-cid="3">
+    <div class="comment">
+      <p class="comment-content"><span class="short">没有打星也能发短评，这片子一般。</span></p>
+    </div>
+  </div>
+</div>
+</body>
+</html>
