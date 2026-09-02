@@ -1,0 +1,117 @@
+"""采集任务执行器（成员A）。
+
+最小闭环：任务在后台线程执行。当前在线爬虫（IMDB/豆瓣）尚未实现时，
+自动降级到 sample_pack 离线样本：status=degraded、error 注明来源。
+成员A接入真实爬虫后，本模块会自动"先在线、失败/未实现才离线兜底"。
+
+入库命名：
+    在线抓取   -> reviews.source = imdb_live / douban_live
+    离线样本   -> reviews.source = imdb_sample / douban_sample
+"""
+import threading
+
+from .. import models
+from ..db import SessionLocal
+from . import samples
+from .base import MovieRef
+from .douban import DoubanCrawler
+from .imdb import ImdbCrawler
+
+CRAWLERS = {"imdb": ImdbCrawler(), "douban": DoubanCrawler()}
+# 离线样本来源 => reviews.source
+SAMPLE_SOURCE = {"imdb": "imdb_sample", "douban": "douban_sample"}
+
+
+def start(job_id: str) -> None:
+    """在后台线程执行任务（不阻塞 HTTP 请求）。"""
+    threading.Thread(target=_run, args=(job_id,), daemon=True).start()
+
+
+def _run(job_id: str) -> None:
+    with SessionLocal() as db:
+        job = db.get(models.CrawlJob, job_id)
+        if job is None or job.status != "pending":
+            return
+        _set(db, job, status="running")
+        try:
+            if not _try_online(db, job):
+                _fallback_offline(db, job)
+        except Exception as exc:  # 无论什么异常，任务都不卡死
+            db.rollback()
+            _set(db, job, status="failed", error=f"采集异常：{exc}")
+
+
+def _try_online(db, job) -> bool:
+    """真实抓取：成功入库返回 True；未实现/无结果/异常返回 False（走离线兜底）。"""
+    crawler = CRAWLERS.get(job.source)
+    if crawler is None:
+        return False
+    try:
+        refs = crawler.search(job.query)
+        if not refs:
+            return False
+        movie = refs[0]
+        items = crawler.fetch(movie, job.limit)
+        if not items:
+            return False
+    except NotImplementedError:
+        return False  # 在线爬虫尚未实现
+    except Exception:
+        return False  # 网络/解析失败 → 兜底
+    _store(db, job, movie, f"{movie.source}_live", items)
+    _set(db, job, status="done", fetched=len(items))
+    return True
+
+
+def _fallback_offline(db, job) -> None:
+    movie = samples.find_movie(job.source, job.query)
+    if movie is None:
+        _set(db, job, status="failed",
+             error=f"在线抓取不可用，且离线样本未收录：{job.query}")
+        return
+    items = samples.load_sample(movie)
+    if not items:
+        _set(db, job, status="failed", error=f"离线样本为空：{movie.movie_id}")
+        return
+    source_label = SAMPLE_SOURCE.get(job.source, f"{job.source}_sample")
+    _store(db, job, movie.to_movie_ref(), source_label, items)
+    _set(db, job, status="degraded", fetched=len(items),
+         error=f"在线抓取未就绪，已用离线样本兜底：{movie.title}")
+
+
+def _store(db, job, movie: MovieRef, source_label: str, items: list) -> None:
+    """把影片 + 影评落库。movie upsert；重复抓取同一 source 先清旧评（幂等）。"""
+    m = db.get(models.Movie, movie.movie_id)
+    if m is None:
+        m = models.Movie(
+            movie_id=movie.movie_id, title=movie.title, year=movie.year,
+            source=movie.source, source_url=movie.source_url,
+        )
+        db.add(m)
+    else:
+        m.title = movie.title
+        m.year = movie.year
+
+    db.query(models.Review).filter(
+        models.Review.movie_id == movie.movie_id,
+        models.Review.source == source_label,
+    ).delete(synchronize_session=False)
+
+    lang = "zh" if movie.source == "douban" else "en"
+    db.add_all([
+        models.Review(movie_id=movie.movie_id, source=source_label, lang=lang,
+                      text=item.text.strip(), stars=item.stars)
+        for item in items if item.text.strip()
+    ])
+    db.commit()
+
+
+def _set(db, job, status: str | None = None, error: str | None = None,
+         fetched: int | None = None) -> None:
+    if status is not None:
+        job.status = status
+    if error is not None:
+        job.error = error
+    if fetched is not None:
+        job.fetched = fetched
+    db.commit()

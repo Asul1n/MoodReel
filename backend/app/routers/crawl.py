@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from .. import models
+from ..crawler import runner, samples
 from ..db import get_db
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
@@ -23,18 +24,29 @@ class CrawlStart(BaseModel):
 
 @router.get("/movies", response_model=list[dict])
 def movies(db: Session = Depends(get_db)) -> list[dict]:
-    """预置 + 已采集影片列表（App 选片用）。成员A：并入 sample_pack 预置影片。"""
-    rows = db.query(models.Movie).order_by(models.Movie.created_at.desc()).limit(200).all()
-    return [
-        {"movie_id": m.movie_id, "title": m.title, "year": m.year,
-         "source": m.source, "source_url": m.source_url}
-        for m in rows
-    ]
+    """候选影片：已入库（crawl）+ 离线样本包（offline，断网也能演示）。"""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for m in db.query(models.Movie).order_by(models.Movie.created_at.desc()).limit(200).all():
+        seen.add(m.movie_id)
+        out.append({
+            "movie_id": m.movie_id, "title": m.title, "year": m.year,
+            "source": m.source, "source_url": m.source_url, "available": "crawl",
+        })
+    for sm in samples.list_sample_movies():
+        if sm.movie_id in seen:
+            continue
+        out.append({
+            "movie_id": sm.movie_id, "title": sm.title, "year": sm.year,
+            "source": sm.source, "source_url": None, "available": "offline",
+            "note": sm.note,
+        })
+    return out
 
 
 @router.post("", status_code=201)
 def start_crawl(payload: CrawlStart, db: Session = Depends(get_db)) -> dict:
-    """登记抓取任务。成员A：在此把 job 交给后台线程执行（crawler.imdb/douban）。"""
+    """登记任务并交给后台线程执行（runner）。"""
     job = models.CrawlJob(
         job_id=uuid.uuid4().hex,
         source=payload.source,
@@ -45,7 +57,7 @@ def start_crawl(payload: CrawlStart, db: Session = Depends(get_db)) -> dict:
     )
     db.add(job)
     db.commit()
-    # TODO(成员A): start background execution of `job` and update status/fetched
+    runner.start(job.job_id)
     return {"job_id": job.job_id}
 
 
