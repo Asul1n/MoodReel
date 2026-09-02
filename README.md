@@ -31,9 +31,9 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
                                         SQLite(语料/结果)    IMDB / 豆瓣网页
 ```
 
-- **端侧 vs 服务端**：ArkTS 只做 HTTP 调用、状态管理与图表渲染；所有分析逻辑（TextCNN 推理、jieba/TF-IDF、褒贬倾向词）在 Python 侧，吃生态成熟度，利于三人按模块并行。
+- **端侧 vs 服务端**：ArkTS 只做 HTTP 调用、状态管理与图表渲染；所有分析逻辑（TextCNN 推理、jieba/TF-IDF、褒贬倾向词）在 Python 侧，利于三人按模块并行。
 - **双通道化解中英错位**：英文影评 → 本地 TextCNN；中文 → 腾讯情感 API；同一条英文可开"对照"再走腾讯。IMDB 50k 只做**训练 + 整库分析**，逐部影片分析走**实时采集集**。
-- **两种分析上下文**：`whole`（IMDB 整库）与 `movie:{id}`（某部采集影片），情感/热点/可视化都跟随所选上下文。
+- **两种分析上下文**：`whole`（IMDB 整库）与 `movie:{id}`（某部采集影片）。
 
 ## 3. 仓库结构
 
@@ -50,11 +50,11 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 │  ├─ README.md .env.example requirements*.txt
 ├─ app/        # HarmonyOS ArkTS 工程（DevEco Studio 生成后放这里）        ← 成员C
 │  └─ README.md            # DevEco 建工程步骤 + 页面/模块规划
-└─ docs/       # 设计规格：docs/superpowers/specs/…-design.md
+└─ docs/       # 设计规格 + 系统运行配置与AI提示词说明
 ```
 
-> **不入库**（.gitignore）：`*.docx`（课程材料）、`.env`、`*.db`、`backend/models/*.npz`、本地缓存。
-> 课程材料如需共享给队友，请走聊天工具/邮箱，不要提交进代码仓库。
+> **不入库**（.gitignore）：`*.docx`、`.env`、`*.db`、`backend/models/*.npz`、本地缓存。
+> 课程 docx 放在本仓库**外层**的课程文件夹里，不提交进代码仓库。
 
 ## 4. 技术栈
 
@@ -64,7 +64,7 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 | 后端 | Python 3.10+、FastAPI、SQLAlchemy(SQLite)、BeautifulSoup(爬虫)、jieba |
 | 模型 | TextCNN（PyTorch 训练 → 导出权重，服务端同结构前向推理） |
 
-## 5. 队友接入方式（每人必做一次）
+## 5. 队友接入（每人必做一次）
 
 ```bash
 # 1. 克隆（你已是 contributor）
@@ -81,31 +81,96 @@ pip install -r requirements.txt -r requirements-dev.txt
 
 # 4. 冒烟测试：应通过 2 个用例
 pytest -q
-
-# 5. 启动后端并自检
-cp .env.example .env
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-curl http://127.0.0.1:8000/health
-# 期望：{"ok": true, "model_ready": false, "version": "0.1.0"}
 ```
 
 - 成员B（训练模型）再装：`pip install -r requirements-train.txt`（或 CPU 版 torch，见文件注释）。
-- App 端请按 [`app/README.md`](app/README.md) 用 DevEco Studio 建工程。
+- App 端按 [`app/README.md`](app/README.md) 用 DevEco Studio 建工程。
+- 完整安装/运行/排障详见 [`docs/系统运行配置与AI提示词说明.md`](docs/系统运行配置与AI提示词说明.md)。
 
-## 6. 团队分工与协作约定
+## 6. Git 协作流程（队友必读）
 
-| 成员 | 主线 | 主要文件 | 兼 |
-|---|---|---|---|
-| A | 采集/爬虫 + 后端骨架 | `app/crawler/`、`app/routers/crawl.py·dataset.py`、`scripts/seed_db.py`、`sample_pack/` | 组长统筹、后端整合联调 |
-| B | 模型/情感/热点 | `app/services/textcnn.py·tencent.py·nlp.py`、`routers/sentiment.py·hotspot.py`、`scripts/train_textcnn.py·benchmark.py` | — |
-| C | 鸿蒙 UI | `app/`（DevEco 工程）、Canvas 图表、HTTP 封装 | 演示视频 |
+### 6.1 分支模型
 
-**协作约定**
-- **契约先行**：接口以 `docs/superpowers/specs/…-design.md` §6 与后端 `schemas.py` 为准；改契约先同步队友再动手。
-- **工作流**：日常直接 `main` 即可，开工前先 `git pull`；提交小而原子；有冲突风险的大改先开分支（`git checkout -b feature/xxx`）。
-- **不入库的文件怎么共享**：`.env` 各自按 `.env.example` 填；模型 `textcnn.npz`/`vocab.json` 与 IMDB 数据集训练后互相拷或走网盘，别塞 git。
-- **跑数据**：灌库 `python scripts/seed_db.py --sample 5000`（联调用抽样，全量 50k 去掉 `--sample`）。
-- 每人还要单独交的课程要求：两张华为开发者认证证书、一份课程思政文档（与分工无关）。
+```
+main ───────────●──────────────────  上线/交付分支：稳定，只接受 dev 合入 + 打 tag
+               ╱
+dev ─────●────●──────────●────────  测试/联调分支：日常集成，功能先合到这里测
+        ╱   ╱            ╱
+feature/crawler   feature/model   feature/ui   每人自己的干活分支
+```
+
+| 分支 | 用途 | 谁能动 |
+|---|---|---|
+| `main` | 上线/答辩演示版（稳定） | 仅在里程碑由 `dev` 合入 |
+| `dev` | 测试/联调分支 | 每人把功能合进来，在这里联调 |
+| `feature/xxx` | 日常开发 | 各成员自己的分支 |
+
+分支命名约定：`feature/crawler`（成员A）、`feature/model`（成员B）、`feature/ui`（成员C）、`feature/docs`、`fix/xxx`。
+
+### 6.2 开工：先 pull，再开分支
+
+```bash
+git checkout dev                 # 切到测试分支
+git pull origin dev              # ★ 每次开工/合并前先同步最新 dev
+git checkout -b feature/model    # 从最新 dev 拉出你自己的分支（示例）
+# ……写代码……
+```
+> 一定从**最新 dev** 开分支；不要从 main 或过期的旧分支上开。
+
+### 6.3 收工：提交并推送
+
+```bash
+git add -A
+git commit -m "feat: 接入 TextCNN 批量推理"   # 前缀建议 feat:/fix:/docs:/chore:
+git push -u origin feature/model
+```
+
+### 6.4 合并到 dev（"该 merge 时怎么 merge"）
+
+方式一（推荐）：GitHub 上为 `feature/model → dev` 提 **Pull Request**，队友 review 后 Merge。
+
+方式二（本地直接合）：
+
+```bash
+git checkout dev
+git pull origin dev              # 先拉最新 dev，避免冲突
+git merge feature/model          # 有冲突时：解决后 git add . 再 git commit
+git push origin dev
+```
+
+### 6.5 同步/更新别人的代码
+
+```bash
+git fetch origin                 # 拉取远端最新状态
+git merge origin/dev             # 把你当前分支与最新 dev 合并
+```
+最常用：在 `dev` 上直接 `git pull origin dev`。
+
+### 6.6 测试分支 / 上线分支怎么切换
+
+```bash
+git branch -a                     # 查看所有（本地+远端）分支
+git checkout dev && git pull origin dev   # → 测试分支：联调/跑 pytest/跑 App
+git checkout main                 # → 上线分支：看稳定版 / 准备答辩
+git checkout feature/ui           # → 切回自己的分支
+```
+
+### 6.7 上线（里程碑 / 答辩前，组长执行）
+
+```bash
+git checkout main && git pull origin main
+git merge dev                     # 测试通过的 dev 合入 main
+git tag -a v0.1.0 -m "里程碑：第一版联调完成"
+git push origin main --tags
+```
+
+### 6.8 铁律（避免踩坑）
+
+1. **开工 / 合并 / 提交前都先 `git pull`**，尽量少冲突。
+2. 别直接往 `main` 写代码；`main` 只收 `dev` 的合并。
+3. 大文件不入库：`textcnn.npz`、`*.db`、`.env`、IMDB csv——按 §5 及配置文档单独共享。
+4. 提交信息加前缀，一次提交一件事。
+5. 绝不 `git push --force`；有冲突先问队友。
 
 ## 7. 快速开始（后端一键顺序）
 
@@ -116,10 +181,13 @@ python scripts/download_imdb.py          # 下载/放置 IMDB_Dataset.csv 到 da
 python scripts/seed_db.py --sample 5000  # 建库灌库（联调用抽样）
 python scripts/train_textcnn.py          # 成员B：训练导出模型（否则 model_ready=false）
 uvicorn app.main:app --host 0.0.0.0 --port 8000
+curl http://127.0.0.1:8000/health
+# 期望：{"ok": true, "model_ready": false, "version": "0.1.0"}
 ```
 
 ## 8. 文档
 
 - 系统设计规格：`docs/superpowers/specs/2026-09-02-movie-review-sentiment-analysis-design.md`
-- 后端运行/联调细节：[`backend/README.md`](backend/README.md)
-- App 建工程与页面规划：[`app/README.md`](app/README.md)
+- **系统运行配置与 AI 提示词说明**：`docs/系统运行配置与AI提示词说明.md`
+- 后端运行/联调细节：`backend/README.md`
+- App 建工程与页面规划：`app/README.md`
