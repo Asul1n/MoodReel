@@ -1,14 +1,19 @@
 """豆瓣短评采集（中文，成员A）。
 
-解析基于豆瓣「短评」页结构（div.comment-item / .allstarXX / .short）。
-若豆瓣改版导致解析不到，把真实页面存进 tests/fixtures/douban_comments.html，
-调整本文件选择器即可（已有解析器单测兜底）。
+豆瓣网页版短评是 JS 渲染，直接 GET 只会拿到"载入中…"空壳；真实评论走**移动端
+rexxar JSON 接口**：
+    m.douban.com/rexxar/api/v2/movie/{id}/interests?count=&order_by=hot&start=
+每条 interest 含 comment（正文）与 rating.value（星级 1-5）。
+
+流程：
+- search：subject_suggest JSON（片名 → 候选电影；也接受豆瓣纯数字 id）
+- fetch ：rexxar interests 分页抓取 comment + 星级
 
 反爬策略（豆瓣限制较严）：
-- 先用一个会话访问 douban.com 主页拿 bid cookie；
-- 统一 UA + Accept-Language；
-- 页间 2-4s 随机间隔；失败指数退避重试；遇到验证页/异常直接停。
-注意：需在**能正常打开豆瓣的机器**上运行（测试/服务器 IP 常被挡，返回验证页）。
+- 会话先访问 douban.com 拿 bid cookie；
+- iPhone UA + 对应 Referer；
+- 分页间 1-2s 随机间隔、失败指数退避。
+注意：需在**能打开豆瓣的机器**上运行；返回非 JSON/无数据时按空处理（runner 会离线兜底）。
 """
 import json
 import random
@@ -17,37 +22,34 @@ import time
 import urllib.parse
 
 import requests
-from bs4 import BeautifulSoup
 
 from .base import CrawlSource, MovieRef, ReviewItem
 
 HOME = "https://www.douban.com"
 SEARCH_API = "https://movie.douban.com/j/subject_suggest?q={q}"
-COMMENTS_TPL = "https://movie.douban.com/subject/{sid}/comments?start={start}&limit=20&sort=new_score"
+INTERESTS_API = ("https://m.douban.com/rexxar/api/v2/movie/{sid}/interests?"
+                 "count={count}&order_by=hot&start={start}")
 
-_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-HEADERS = {
-    "User-Agent": _UA,
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    "Referer": HOME,
-}
+_MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+              "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
+              "Mobile/15E148 Safari/604.1")
 PAGE_SIZE = 20
-# 反爬验证页特征
-_BLOCK_HINTS = ("检测到有异常请求", "访问豆瓣", "sec.douban.com", "安全验证")
-_ALLSTAR_TITLE = {"力荐": 5, "推荐": 4, "还行": 3, "较差": 2, "很差": 1}
+
+
+def _headers_movie() -> dict:
+    return {"User-Agent": _MOBILE_UA, "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": "https://movie.douban.com/"}
+
+
+def _headers_m(sid: str) -> dict:
+    return {"User-Agent": _MOBILE_UA, "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": f"https://m.douban.com/movie/subject/{sid}/"}
 
 
 # ---------- 无状态解析函数（可脱离网络单测） ----------
 
-def looks_blocked(html: str) -> bool:
-    """判断返回是否反爬验证页 / 空页。"""
-    h = html or ""
-    return (len(h) < 1500) or any(k in h for k in _BLOCK_HINTS)
-
-
 def parse_subjects(text: str) -> list[MovieRef]:
-    """解析 subject_suggest JSON 接口，只保留电影。"""
+    """解析 subject_suggest JSON，只保留电影。"""
     try:
         data = json.loads(text)
     except (ValueError, TypeError):
@@ -72,37 +74,26 @@ def parse_subjects(text: str) -> list[MovieRef]:
     return out
 
 
-def _stars_of(comment_el) -> int | None:
-    """从 .allstarXX class 或 title 提取星级 1-5。"""
-    el = comment_el.select_one("span[class*=allstar]")
-    if el is not None:
-        for cls in (el.get("class") or []):
-            m = re.fullmatch(r"allstar([1-5])0", cls)
-            if m:
-                return int(m.group(1))
-        title = (el.get("title") or "").strip()
-        if title in _ALLSTAR_TITLE:
-            return _ALLSTAR_TITLE[title]
-    return None
-
-
-def _text_of(comment_el) -> str:
-    node = (comment_el.select_one("p.comment-content span.short")
-            or comment_el.select_one("p.comment-content")
-            or comment_el.select_one(".comment-content"))
-    return node.get_text(" ", strip=True) if node is not None else ""
-
-
-def parse_comments(html: str) -> list[ReviewItem]:
-    """解析短评页里的 div.comment-item。"""
-    soup = BeautifulSoup(html or "", "html.parser")
-    items: list[ReviewItem] = []
-    for el in soup.select("div.comment-item"):
-        text = _text_of(el)
-        if not text:
+def parse_interests(text: str) -> list[ReviewItem]:
+    """解析 rexxar interests JSON -> 短评列表（正文 + 星级，可为空）。"""
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return []
+    out: list[ReviewItem] = []
+    for it in (data or {}).get("interests") or []:
+        comment = (it.get("comment") or "").strip()
+        if not comment:
             continue
-        items.append(ReviewItem(text=text, stars=_stars_of(el)))
-    return items
+        stars: int | None = None
+        rating = it.get("rating")
+        if isinstance(rating, dict):
+            try:
+                stars = int(rating.get("value"))
+            except (TypeError, ValueError):
+                stars = None
+        out.append(ReviewItem(text=comment, stars=stars))
+    return out
 
 
 # ---------- 真实抓取 ----------
@@ -115,21 +106,21 @@ class DoubanCrawler(CrawlSource):
         self._primed = False
 
     def _ensure_session(self) -> None:
-        """先用会话访问一次主页，取得 bid 等 cookie（豆瓣要求带 cookie 请求短评页）。"""
+        """会话先访问一次主页，取得 bid cookie（豆瓣多数接口要求）。"""
         if self._primed:
             return
         try:
-            self.session.get(HOME, headers=HEADERS, timeout=8)
+            self.session.get(HOME, headers=_headers_movie(), timeout=8)
         except requests.RequestException:
             pass
         self._primed = True
 
-    def _get(self, url: str) -> str | None:
-        """GET 并返回文本；403/429/网络异常做指数退避重试。"""
+    def _get(self, url: str, headers: dict) -> str | None:
+        """GET 返回文本；403/429/网络异常做指数退避重试。"""
         self._ensure_session()
         for attempt in range(3):
             try:
-                r = self.session.get(url, headers=HEADERS, timeout=10)
+                r = self.session.get(url, headers=headers, timeout=12)
                 if r.status_code == 200:
                     return r.text
                 if r.status_code in (403, 429):
@@ -144,15 +135,11 @@ class DoubanCrawler(CrawlSource):
         q = (query or "").strip()
         if not q:
             return []
-        # 直接是豆瓣 subject id（纯数字）
-        if re.fullmatch(r"\d+", q):
+        if re.fullmatch(r"\d+", q):   # 直接是豆瓣 subject id
             return [MovieRef(movie_id=f"douban:{q}", title=q, source="douban")]
-        # 片名 -> subject_suggest JSON 候选
         url = SEARCH_API.format(q=urllib.parse.quote(q))
-        text = self._get(url)
-        if not text or looks_blocked(text):
-            return []
-        return parse_subjects(text)
+        text = self._get(url, _headers_movie())
+        return parse_subjects(text) if text else []
 
     def fetch(self, movie: MovieRef, limit: int = 60) -> list[ReviewItem]:
         sid = (movie.movie_id or "").split("douban:")[-1]
@@ -162,13 +149,14 @@ class DoubanCrawler(CrawlSource):
         fetched: list[ReviewItem] = []
         start = 0
         while len(fetched) < limit:
-            html = self._get(COMMENTS_TPL.format(sid=sid, start=start))
-            if not html or looks_blocked(html):
+            url = INTERESTS_API.format(sid=sid, count=PAGE_SIZE, start=start)
+            text = self._get(url, _headers_m(sid))
+            page = parse_interests(text) if text else []
+            if not page:              # 空/被挡
                 break
-            page = parse_comments(html)
             fetched.extend(page)
-            if len(page) < PAGE_SIZE:      # 到末页
+            if len(page) < PAGE_SIZE:  # 到末页
                 break
             start += PAGE_SIZE
-            time.sleep(random.uniform(2.0, 4.0))   # 反爬限速
+            time.sleep(random.uniform(1.0, 2.0))   # 反爬限速
         return fetched[:limit]
