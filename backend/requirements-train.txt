@@ -1,0 +1,6 @@
+# 模型训练/评测依赖（成员B）。CPU 版 torch 安装示例：
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+-r requirements.txt
+torch>=2.2
+pandas>=2.0
+scikit-learn>=1.4

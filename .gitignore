@@ -1,0 +1,33 @@
+# ---- 课程材料（不纳入代码仓库，如需共享请去掉下面注释并提交）----
+*.docx
+*.doc
+.~lock.*
+
+# ---- 本地工具 / Claude ----
+.claude/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+.mypy_cache/
+
+# ---- 环境与密钥 ----
+.env
+
+# ---- 运行期数据 / 训练产物 ----
+*.db
+*.sqlite3
+backend/data/*
+!backend/data/.gitkeep
+backend/models/*.npz
+*.log
+
+# ---- 操作系统 / 编辑器 ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
