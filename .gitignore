@@ -24,6 +24,8 @@ venv/
 backend/data/*
 !backend/data/.gitkeep
 backend/models/*.npz
+backend/dumps/
+backend/tests/fixtures/douban_interests.json
 *.log
 
 # ---- 操作系统 / 编辑器 ----
