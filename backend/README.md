@@ -41,7 +41,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 |---|---|---|
 | MOODREEL_DB | `./data/moodreel.db` | SQLite 路径 |
 | MOODREEL_MODEL_DIR | `./models` | 训练产物目录 |
-| TENCENT_APPID / TENCENT_SECRET_KEY / TENCENT_ENABLED | 空 | 腾讯情感 API；开启后中文通道生效 |
+| BAIDU_API_KEY / BAIDU_SECRET_KEY / BAIDU_ENABLED | 空 | 百度情感倾向分析 API（中文通道默认，`/analyze/zh`） |
+| TENCENT_APPID / TENCENT_SECRET_KEY / TENCENT_ENABLED | 空 | 腾讯情感 API（备选，暂未启用） |
 | HOST / PORT | 0.0.0.0 / 8000 | 监听地址 |
 
 ## 与 App 联调
