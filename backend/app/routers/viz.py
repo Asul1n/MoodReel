@@ -1,13 +1,18 @@
-"""可视化模块路由：一次返回所选上下文的图表聚合数据（App 只负责渲染）。
+"""可视化模块路由：一次返回所选上下文的全部图表聚合数据（App 只负责渲染）。"""
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
-成员A/B 组合 dataset + sentiment + hotspot 后接通。
-"""
-from fastapi import APIRouter, HTTPException, Query
+from ..db import get_db
+from ..services import analytics
 
 router = APIRouter(prefix="/viz", tags=["viz"])
 
 
 @router.get("/summary")
-def summary(context: str = Query("whole")) -> dict:
-    # 返回：{dist:{positive,negative}, top_words:[...], polarity:{pos:[],neg:[]}, trend:[{date,count}]}
-    raise HTTPException(status_code=501, detail="成员实现：可视化聚合")
+def summary(
+    context: str = Query("whole", description="whole 或 movie:{movie_id}"),
+    top_n: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> dict:
+    """一次返回：dist(分布) / trend(趋势) / top_words / cloud / polarity，供可视化页。"""
+    return analytics.summary(db, context, top_n=top_n)
