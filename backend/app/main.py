@@ -18,7 +18,7 @@ VERSION = "0.1.0"
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     init_db()
-    # 成员B：接入模型后在此 textcnn.load()
+    textcnn.load()  # 惰性：缺 torch/模型时不报错，仅 model_ready=False
     yield
 
 
@@ -38,6 +38,7 @@ def health() -> dict:
     return {
         "ok": True,
         "model_ready": textcnn.is_ready(),
+        "model": textcnn.status(),
         "version": VERSION,
     }
 

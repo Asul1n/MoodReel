@@ -24,6 +24,7 @@ venv/
 backend/data/*
 !backend/data/.gitkeep
 backend/models/*.npz
+backend/models/*.pt
 backend/dumps/
 backend/tests/fixtures/douban_interests.json
 *.log

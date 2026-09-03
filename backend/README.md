@@ -19,22 +19,21 @@ cd backend
 python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 
-# 模型训练还需（成员B）：
-# pip install -r requirements-train.txt
-# 或 CPU 版： pip install torch --index-url https://download.pytorch.org/whl/cpu
+# 模型推理（/analyze/en 前置）需 torch + model.pt：
+pip install -r requirements-train.txt   # 或 CPU 版 pip install torch --index-url https://download.pytorch.org/whl/cpu
+cp <队友交付包>/textcnn_sentiment/model.pt models/model.pt   # 细节见 models/README.md（*.pt 不入 git）
 
 cp .env.example .env        # 按需填写（腾讯密钥等）
 
 # 数据准备（一次）
 python scripts/download_imdb.py     # 下载/放置 IMDB 50k CSV 到 data/
 python scripts/seed_db.py           # 建库 + 灌入 IMDB 静态语料 + 预置影片/离线样本
-python scripts/train_textcnn.py     # 训练并导出 models/vocab.json + models/textcnn.npz（成员B）
 
 # 启动
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-启动后可先 `curl http://127.0.0.1:8000/health`，应返回 `{"ok": true, "model_ready": false, "version": "0.1.0"}`（`model_ready` 在成员B接入模型后变 true）。
+启动后可先 `curl http://127.0.0.1:8000/health`，应返回 `{"ok": true, "model_ready": true|false, "model": {...}, "version": "0.1.0"}`（`model_ready` 需 torch + `models/model.pt`；缺任一则为 false，且 `model.msg` 会说明原因）。
 
 ## 环境变量（见 `.env.example`）
 
