@@ -24,6 +24,12 @@ BAIDU_API_KEY = os.getenv("BAIDU_API_KEY", "")       # 百度智能云 API Key
 BAIDU_SECRET_KEY = os.getenv("BAIDU_SECRET_KEY", "")  # 百度智能云 Secret Key
 BAIDU_ENABLED = os.getenv("BAIDU_ENABLED", "false").lower() == "true"
 
+# DeepSeek 大模型情感分析（OpenAI 兼容；中文/英文皆可，用于评论批量补标）
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+DEEPSEEK_ENABLED = os.getenv("DEEPSEEK_ENABLED", "false").lower() == "true"
+
 # 监听
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
