@@ -17,6 +17,13 @@ class Movie(Base):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source: Mapped[str] = mapped_column(String(16))          # imdb / douban
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # —— 影片元数据（豆瓣详情接口抓取，供前端做影片简介页）——
+    intro: Mapped[str | None] = mapped_column(Text, nullable=True)            # 剧情简介
+    poster: Mapped[str | None] = mapped_column(String(500), nullable=True)    # 海报 URL
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)        # 豆瓣评分 0-10
+    genres: Mapped[str | None] = mapped_column(String(200), nullable=True)    # 类型："剧情 / 犯罪"
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 

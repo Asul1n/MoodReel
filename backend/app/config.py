@@ -7,11 +7,18 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent  # backend/
 load_dotenv(BASE_DIR / ".env")
 
-# SQLite 数据库路径
-DB_PATH = os.getenv("MOODREEL_DB", str(BASE_DIR / "data" / "moodreel.db"))
 
-# 模型目录（vocab.json / textcnn.npz）
-MODEL_DIR = Path(os.getenv("MOODREEL_MODEL_DIR", str(BASE_DIR / "models")))
+def _abs(p: str) -> str:
+    """把相对路径统一解析到 backend/ 下，避免依赖运行目录。"""
+    path = Path(p).expanduser()
+    return str(path if path.is_absolute() else BASE_DIR / path)
+
+
+# SQLite 数据库路径
+DB_PATH = _abs(os.getenv("MOODREEL_DB", str(BASE_DIR / "data" / "moodreel.db")))
+
+# 模型目录（model.pt 等）
+MODEL_DIR = Path(_abs(os.getenv("MOODREEL_MODEL_DIR", str(BASE_DIR / "models"))))
 
 # 腾讯 AI 情感分析 API（备选中文通道；当前默认用百度，见下）
 TENCENT_APPID = os.getenv("TENCENT_APPID", "")

@@ -1,8 +1,8 @@
 """采集任务执行器（成员A）。
 
-最小闭环：任务在后台线程执行。当前在线爬虫（IMDB/豆瓣）尚未实现时，
-自动降级到 sample_pack 离线样本：status=degraded、error 注明来源。
-成员A接入真实爬虫后，本模块会自动"先在线、失败/未实现才离线兜底"。
+流程：后台线程执行 crawl job —— 先尝试在线抓取（IMDB/豆瓣），失败/未实现再走
+sample_pack 离线样本兜底（status=degraded）。在线抓取成功后，会顺带抓取影片
+元数据（简介/海报/评分/类型）写入 movies 表，供前端展示简介。
 
 入库命名：
     在线抓取   -> reviews.source = imdb_live / douban_live
@@ -20,6 +20,7 @@ from .imdb import ImdbCrawler
 CRAWLERS = {"imdb": ImdbCrawler(), "douban": DoubanCrawler()}
 # 离线样本来源 => reviews.source
 SAMPLE_SOURCE = {"imdb": "imdb_sample", "douban": "douban_sample"}
+_META_FIELDS = ("title", "year", "intro", "poster", "rating", "genres")
 
 
 def start(job_id: str) -> None:
@@ -59,8 +60,29 @@ def _try_online(db, job) -> bool:
     except Exception:
         return False  # 网络/解析失败 → 兜底
     _store(db, job, movie, f"{movie.source}_live", items)
+    _apply_meta(db, crawler, movie)   # 顺带抓影片简介等（best-effort）
     _set(db, job, status="done", fetched=len(items))
     return True
+
+
+def _apply_meta(db, crawler, movie: MovieRef) -> None:
+    """把豆瓣详情接口的影片元数据写进 movies（失败静默，不强依赖）。"""
+    fetch_meta = getattr(crawler, "movie_meta", None)
+    if fetch_meta is None:
+        return
+    try:
+        meta = fetch_meta(movie) or {}
+    except Exception:
+        return
+    if not meta:
+        return
+    m = db.get(models.Movie, movie.movie_id)
+    if m is None:
+        return
+    for field in _META_FIELDS:
+        if meta.get(field) is not None:
+            setattr(m, field, meta[field])
+    db.commit()
 
 
 def _fallback_offline(db, job) -> None:
