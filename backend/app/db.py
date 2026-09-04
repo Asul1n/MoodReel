@@ -26,6 +26,9 @@ _COLUMNS_BY_TABLE = {
     "reviews": {
         "review_time": "VARCHAR(32)",
     },
+    "crawl_jobs": {
+        "refresh": "BOOLEAN",
+    },
 }
 
 

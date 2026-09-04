@@ -62,6 +62,18 @@ def _try_online(db, job) -> bool:
         movie = refs[0]
         logger.info("解析到影片 %s《%s》%s",
                     movie.movie_id, movie.title, f"({movie.year})" if movie.year else "")
+        # 幂等/缓存：refresh=false 且该片已有在线评论 -> 复用跳过重抓
+        if not getattr(job, "refresh", False):
+            live_src = f"{movie.source}_live"
+            existing = db.query(models.Review).filter(
+                models.Review.movie_id == movie.movie_id,
+                models.Review.source == live_src).count()
+            if existing:
+                _set(db, job, status="done", fetched=existing,
+                     error=f"该片已有 {existing} 条评论，已复用跳过抓取（refresh=true 可强制重抓）")
+                logger.info("影片 %s 已有 %s 条评论，跳过抓取（refresh=true 可强制重抓）",
+                            movie.movie_id, existing)
+                return True
         logger.info("开始在线抓取影片 %s，limit=%s", movie.movie_id, job.limit)
         items = crawler.fetch(movie, job.limit)
         if not items:
