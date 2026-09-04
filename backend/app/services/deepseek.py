@@ -9,12 +9,15 @@
 默认每次最多 15 条打包成一个请求以省 token；解析失败自动重试一次。
 """
 import json
+import logging
 import re
 import time
 
 import requests
 
 from .. import config
+
+logger = logging.getLogger("moodreel")
 
 BATCH = 15
 LABELS = {"positive", "neutral", "negative"}
@@ -87,8 +90,10 @@ def _chat(texts: list[str]) -> list[dict]:
 def classify(texts: list[str]) -> list[dict]:
     """分批打标。返回 [{label, prob}, ...]，长度与输入一致。"""
     out: list[dict] = []
-    for i in range(0, len(texts), BATCH):
+    total = len(texts)
+    for i in range(0, total, BATCH):
         chunk = texts[i:i + BATCH]
+        logger.info("DeepSeek 打标进度 %d/%d 条（本批 %d 条）", min(i + len(chunk), total), total, len(chunk))
         raw = _chat(chunk)
         for r in raw:
             label = str((r or {}).get("label", "")).lower()

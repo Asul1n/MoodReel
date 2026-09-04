@@ -16,6 +16,7 @@ rexxar JSON 接口**：
 注意：需在**能打开豆瓣的机器**上运行；返回非 JSON/无数据时按空处理（runner 会离线兜底）。
 """
 import json
+import logging
 import random
 import re
 import time
@@ -24,6 +25,8 @@ import urllib.parse
 import requests
 
 from .base import CrawlSource, MovieRef, ReviewItem
+
+logger = logging.getLogger("moodreel")
 
 HOME = "https://www.douban.com"
 SEARCH_API = "https://movie.douban.com/j/subject_suggest?q={q}"
@@ -175,14 +178,20 @@ class DoubanCrawler(CrawlSource):
         limit = max(1, min(int(limit or 200), 200))
         fetched: list[ReviewItem] = []
         start = 0
+        logger.info("豆瓣抓取开始 movie=%s 目标 %d 条", movie.movie_id, limit)
         while len(fetched) < limit:
             url = INTERESTS_API.format(sid=sid, count=PAGE_SIZE, start=start)
             text = self._get(url, _headers_m(sid))
             page = parse_interests(text) if text else []
             if not page:              # 空/被挡
+                logger.warning("豆瓣抓取 movie=%s 第 %d 页为空/被反爬拦截，提前结束",
+                               movie.movie_id, start // PAGE_SIZE + 1)
                 break
             fetched.extend(page)
+            logger.info("豆瓣抓取 movie=%s 翻页进度 %d/%d 条",
+                        movie.movie_id, min(len(fetched), limit), limit)
             if len(page) < PAGE_SIZE:  # 到末页
+                logger.info("豆瓣抓取 movie=%s 已到末页", movie.movie_id)
                 break
             start += PAGE_SIZE
             time.sleep(random.uniform(1.0, 2.0))   # 反爬限速

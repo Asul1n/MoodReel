@@ -57,10 +57,15 @@ def _try_online(db, job) -> bool:
     try:
         refs = crawler.search(job.query)
         if not refs:
+            logger.info("搜索无结果 query=%s source=%s（转离线样本）", job.query, job.source)
             return False
         movie = refs[0]
+        logger.info("解析到影片 %s《%s》%s",
+                    movie.movie_id, movie.title, f"({movie.year})" if movie.year else "")
+        logger.info("开始在线抓取影片 %s，limit=%s", movie.movie_id, job.limit)
         items = crawler.fetch(movie, job.limit)
         if not items:
+            logger.warning("影片 %s 抓到 0 条（转离线样本）", movie.movie_id)
             return False
     except NotImplementedError:
         return False  # 在线爬虫尚未实现
@@ -111,12 +116,23 @@ def _apply_meta(db, crawler, movie: MovieRef) -> None:
     for field in _META_FIELDS:
         if meta.get(field) is not None:
             setattr(m, field, meta[field])
+    intro = meta.get("intro") or ""
+    logger.info("抓取到影片元数据 %s《%s》: 类型=%s 评分=%s",
+                movie.movie_id, meta.get("title") or movie.title,
+                meta.get("genres"), meta.get("rating"))
+    if intro:
+        logger.info("影片简介 %s: %s", movie.movie_id,
+                    intro[:80] + "…" if len(intro) > 80 else intro)
     # 海报：优先下载到本地伺服，规避豆瓣防盗；失败则保留原外链
     poster = meta.get("poster")
     if poster and str(poster).startswith("http"):
+        logger.info("开始下载海报 %s <- %s", movie.movie_id, str(poster)[:80])
         local = _localize_poster(movie, str(poster))
         if local:
             m.poster = local
+            logger.info("海报已保存到本地 %s", local)
+        else:
+            logger.warning("海报本地下载失败，保留豆瓣外链 %s", movie.movie_id)
     db.commit()
 
 
