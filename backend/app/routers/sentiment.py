@@ -7,9 +7,12 @@
 - /analyze/compare 同文本多引擎对照
 契约见 schemas.AnalyzeRequest / AnalyzeBatchOut。
 """
+import logging
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
+
+logger = logging.getLogger("moodreel")
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -117,6 +120,7 @@ def backfill(req: BackfillReq, db: Session = Depends(get_db)) -> dict:
         r.pred_prob = lab["prob"]
         r.model = "deepseek"
     db.commit()
+    logger.info("backfill context=%s updated=%s model=deepseek", req.context, len(rows))
     return {"context": req.context, "updated": len(rows),
             "model": "deepseek", "lang": req.lang}
 

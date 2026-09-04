@@ -9,8 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
 from .db import init_db
+from .logging_config import logger, setup_logging
 from .routers import crawl, dataset, hotspot, sentiment, viz
 from .services import textcnn
+
+setup_logging()
 
 VERSION = "0.1.0"
 
@@ -19,6 +22,9 @@ VERSION = "0.1.0"
 async def lifespan(_: FastAPI):
     init_db()
     textcnn.load()  # 惰性：缺 torch/模型时不报错，仅 model_ready=False
+    logger.info("后端启动完成 model_ready=%s", textcnn.is_ready())
+    if not textcnn.is_ready():
+        logger.warning("TextCNN 未就绪：%s", textcnn.status()["msg"])
     yield
 
 

@@ -8,6 +8,7 @@ sample_pack 离线样本兜底（status=degraded）。在线抓取成功后，�
     在线抓取   -> reviews.source = imdb_live / douban_live
     离线样本   -> reviews.source = imdb_sample / douban_sample
 """
+import logging
 import threading
 
 from .. import models
@@ -20,6 +21,8 @@ from .imdb import ImdbCrawler
 CRAWLERS = {"imdb": ImdbCrawler(), "douban": DoubanCrawler()}
 # 离线样本来源 => reviews.source
 SAMPLE_SOURCE = {"imdb": "imdb_sample", "douban": "douban_sample"}
+
+logger = logging.getLogger("moodreel")
 _META_FIELDS = ("title", "year", "intro", "poster", "rating", "genres")
 
 
@@ -40,6 +43,8 @@ def _run(job_id: str) -> None:
         except Exception as exc:  # 无论什么异常，任务都不卡死
             db.rollback()
             _set(db, job, status="failed", error=f"采集异常：{exc}")
+        logger.info("crawl job=%s source=%s query=%s status=%s fetched=%s",
+                    job.job_id, job.source, job.query, job.status, job.fetched)
 
 
 def _try_online(db, job) -> bool:

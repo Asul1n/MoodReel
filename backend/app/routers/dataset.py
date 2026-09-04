@@ -1,4 +1,5 @@
 """语料模块（静态 IMDB + 动态采集 + 手动新增）：浏览/筛选/统计/新增。"""
+import logging
 import re
 from datetime import datetime
 
@@ -13,6 +14,7 @@ from ..services import analytics, deepseek, textcnn
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
 _CJK = re.compile(r"[一-鿿]")
+logger = logging.getLogger("moodreel")
 
 
 @router.get("/stats")
@@ -107,4 +109,5 @@ def ingest(payload: IngestRequest, db: Session = Depends(get_db)) -> dict:
             _label_if_possible(review)
         ids.append(review.id)
     db.commit()
+    logger.info("ingest count=%s analyze=%s ids=%s", len(ids), payload.analyze, ids[:20])
     return {"ids": ids, "count": len(ids), "analyze": payload.analyze}
