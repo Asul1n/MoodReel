@@ -29,6 +29,7 @@ HOME = "https://www.douban.com"
 SEARCH_API = "https://movie.douban.com/j/subject_suggest?q={q}"
 INTERESTS_API = ("https://m.douban.com/rexxar/api/v2/movie/{sid}/interests?"
                  "count={count}&order_by=hot&start={start}")
+MOVIE_DETAIL_API = "https://m.douban.com/rexxar/api/v2/movie/{sid}"
 
 _MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
               "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
@@ -96,6 +97,30 @@ def parse_interests(text: str) -> list[ReviewItem]:
     return out
 
 
+def _to_int_year(v) -> int | None:
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_movie_detail(text: str) -> dict:
+    """解析 rexxar 影片详情 -> 元数据（供前端简介页）。"""
+    d = json.loads(text or "{}")
+    rating = d.get("rating") or {}
+    pic = d.get("pic") or {}
+    directors = [x.get("name", "") for x in (d.get("directors") or []) if x.get("name")]
+    return {
+        "title": d.get("title"),
+        "year": _to_int_year(d.get("year")),
+        "intro": (d.get("intro") or "").strip(),
+        "poster": (pic.get("large") or pic.get("normal") or None),
+        "rating": float(rating["value"]) if rating.get("value") is not None else None,
+        "genres": " / ".join(d.get("genres") or []),
+        "directors": " / ".join(directors),
+    }
+
+
 # ---------- 真实抓取 ----------
 
 class DoubanCrawler(CrawlSource):
@@ -160,3 +185,16 @@ class DoubanCrawler(CrawlSource):
             start += PAGE_SIZE
             time.sleep(random.uniform(1.0, 2.0))   # 反爬限速
         return fetched[:limit]
+
+    def movie_meta(self, movie: MovieRef) -> dict | None:
+        """抓取影片简介/海报/评分等元数据（失败返回 None，不强依赖）。"""
+        sid = (movie.movie_id or "").split("douban:")[-1]
+        if not sid.isdigit():
+            return None
+        text = self._get(MOVIE_DETAIL_API.format(sid=sid), _headers_m(sid))
+        if not text:
+            return None
+        try:
+            return parse_movie_detail(text)
+        except Exception:
+            return None
