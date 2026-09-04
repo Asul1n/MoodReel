@@ -1,13 +1,18 @@
-"""语料模块（静态 IMDB + 动态采集 + 手动新增）：浏览/筛选/统计。"""
+"""语料模块（静态 IMDB + 动态采集 + 手动新增）：浏览/筛选/统计/新增。"""
+import re
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..db import get_db
-from ..services import analytics
+from ..services import analytics, deepseek, textcnn
 
 router = APIRouter(prefix="/dataset", tags=["dataset"])
+_CJK = re.compile(r"[一-鿿]")
 
 
 @router.get("/stats")
@@ -55,7 +60,51 @@ def reviews(
     )
 
 
+class IngestRequest(BaseModel):
+    texts: list[str] = Field(min_length=1, max_length=500)
+    source: str = Field("manual", pattern="^(manual|imdb_static)$")
+    movie_id: str | None = None
+    analyze: bool = False   # True 时按语言自动补标（en→TextCNN / zh→DeepSeek）
+
+
+def _detect_lang(text: str) -> str:
+    return "zh" if _CJK.search(text) else "en"
+
+
+def _label_if_possible(review: models.Review) -> None:
+    """best-effort：给单条评论补情感标签；缺模型/接口则静默保留未标注。"""
+    try:
+        if review.lang == "en" and textcnn.is_ready():
+            (item,) = textcnn.analyze_batch([review.text])[0][:1]
+            review.pred_label, review.pred_prob, review.model = \
+                item["label"], item["prob"], "textcnn"
+        elif review.lang == "zh" and deepseek.enabled():
+            lab = deepseek.classify([review.text])[0]
+            review.pred_label, review.pred_prob, review.model = \
+                lab["label"], lab["prob"], "deepseek"
+    except Exception:
+        pass  # 不因补标失败影响新增入库
+
+
 @router.post("/ingest", status_code=201)
-def ingest(payload: schemas.AnalyzeRequest, db: Session = Depends(get_db)) -> dict:
-    """手动新增/导入评论并落库。TODO：落库后调情感接口补标，返回 id 列表。"""
-    raise HTTPException(status_code=501, detail="待实现：落库 + 语言路由自动分析")
+def ingest(payload: IngestRequest, db: Session = Depends(get_db)) -> dict:
+    """手动新增/导入评论并落库；analyze=true 时自动按语言补情感标签。"""
+    ids: list[int] = []
+    for text in payload.texts:
+        text = (text or "").strip()
+        if not text:
+            continue
+        review = models.Review(
+            movie_id=payload.movie_id,
+            source=payload.source,
+            lang=_detect_lang(text),
+            text=text,
+            created_at=datetime.utcnow(),
+        )
+        db.add(review)
+        db.flush()          # 取 id
+        if payload.analyze:
+            _label_if_possible(review)
+        ids.append(review.id)
+    db.commit()
+    return {"ids": ids, "count": len(ids), "analyze": payload.analyze}
