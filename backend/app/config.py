@@ -28,13 +28,7 @@ TENCENT_APPID = os.getenv("TENCENT_APPID", "")
 TENCENT_SECRET_KEY = os.getenv("TENCENT_SECRET_KEY", "")
 TENCENT_ENABLED = os.getenv("TENCENT_ENABLED", "false").lower() == "true"
 
-# 百度 AI 情感倾向分析 API（中文通道，默认）
-# 文档：https://cloud.baidu.com/product/nlp_apply/sentiment_classify
-BAIDU_API_KEY = os.getenv("BAIDU_API_KEY", "")       # 百度智能云 API Key
-BAIDU_SECRET_KEY = os.getenv("BAIDU_SECRET_KEY", "")  # 百度智能云 Secret Key
-BAIDU_ENABLED = os.getenv("BAIDU_ENABLED", "false").lower() == "true"
-
-# DeepSeek 大模型情感分析（OpenAI 兼容；中文/英文皆可，用于评论批量补标）
+# DeepSeek 大模型情感分析（OpenAI 兼容；唯一中文通道，正/负二类 + 置信度）
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")

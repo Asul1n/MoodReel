@@ -79,7 +79,9 @@ def test_classify_labels(monkeypatch) -> None:
     labels = deepseek.classify(["这部电影很好看", "无聊透顶", "还行吧"])
     assert labels[0]["label"] == "positive"
     assert labels[1]["label"] == "negative"
-    assert labels[2]["label"] == "neutral"
+    # 中性语义 -> 二类低置信度表达（prob≈0.5）
+    assert labels[2]["prob"] == 0.5
+    assert labels[2]["label"] in ("positive", "negative")
 
 
 def test_disabled_raises(monkeypatch) -> None:

@@ -58,11 +58,11 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 
 ## 4. 技术栈
 
-| 端 | 技术 |
-|---|---|
-| App | ArkTS（ArkUI 声明式）、DevEco Studio、Canvas 图表 |
-| 后端 | Python 3.10+、FastAPI、SQLAlchemy(SQLite)、BeautifulSoup(爬虫)、jieba |
-| 模型 | TextCNN（PyTorch 训练 → 导出权重，服务端同结构前向推理） |
+| 端   | 技术                                                              |
+| --- | --------------------------------------------------------------- |
+| App | ArkTS（ArkUI 声明式）、DevEco Studio、Canvas 图表                        |
+| 后端  | Python 3.10+、FastAPI、SQLAlchemy(SQLite)、BeautifulSoup(爬虫)、jieba |
+| 模型  | TextCNN（PyTorch 训练 → 导出权重，服务端同结构前向推理）                           |
 
 ## 5. 队友接入（每人必做一次）
 
@@ -99,11 +99,11 @@ dev ─────●────●──────────●───�
 feature/crawler   feature/model   feature/ui   每人自己的干活分支
 ```
 
-| 分支 | 用途 | 谁能动 |
-|---|---|---|
-| `main` | 上线/答辩演示版（稳定） | 仅在里程碑由 `dev` 合入 |
-| `dev` | 测试/联调分支 | 每人把功能合进来，在这里联调 |
-| `feature/xxx` | 日常开发 | 各成员自己的分支 |
+| 分支            | 用途           | 谁能动             |
+| ------------- | ------------ | --------------- |
+| `main`        | 上线/答辩演示版（稳定） | 仅在里程碑由 `dev` 合入 |
+| `dev`         | 测试/联调分支      | 每人把功能合进来，在这里联调  |
+| `feature/xxx` | 日常开发         | 各成员自己的分支        |
 
 分支命名约定：`feature/crawler`（成员A）、`feature/model`（成员B）、`feature/ui`（成员C）、`feature/docs`、`fix/xxx`。
 
@@ -115,6 +115,7 @@ git pull origin dev              # ★ 每次开工/合并前先同步最新 dev
 git checkout -b feature/model    # 从最新 dev 拉出你自己的分支（示例）
 # ……写代码……
 ```
+
 > 一定从**最新 dev** 开分支；不要从 main 或过期的旧分支上开。
 
 ### 6.3 收工：提交并推送
@@ -144,6 +145,7 @@ git push origin dev
 git fetch origin                 # 拉取远端最新状态
 git merge origin/dev             # 把你当前分支与最新 dev 合并
 ```
+
 最常用：在 `dev` 上直接 `git pull origin dev`。
 
 ### 6.6 测试分支 / 上线分支怎么切换
