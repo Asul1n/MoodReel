@@ -127,7 +127,8 @@ def _store(db, job, movie: MovieRef, source_label: str, items: list) -> None:
     lang = "zh" if movie.source == "douban" else "en"
     db.add_all([
         models.Review(movie_id=movie.movie_id, source=source_label, lang=lang,
-                      text=item.text.strip(), stars=item.stars)
+                      text=item.text.strip(), stars=item.stars,
+                      review_time=getattr(item, "time", None))
         for item in items if item.text.strip()
     ])
     db.commit()

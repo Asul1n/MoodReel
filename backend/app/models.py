@@ -38,6 +38,7 @@ class Review(Base):
     lang: Mapped[str] = mapped_column(String(8), default="en")   # en / zh
     text: Mapped[str] = mapped_column(Text)
     stars: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 豆瓣 1-5
+    review_time: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 评论原始发表时间 YYYY-MM-DD（趋势图用）
     ground_truth: Mapped[str | None] = mapped_column(String(16), nullable=True)  # IMDB 正/负标签
     pred_label: Mapped[str | None] = mapped_column(String(16), nullable=True)    # positive / negative
     pred_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -56,6 +57,6 @@ class CrawlJob(Base):
     movie_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/running/done/failed/degraded
     fetched: Mapped[int] = mapped_column(Integer, default=0)
-    limit: Mapped[int] = mapped_column(Integer, default=60)
+    limit: Mapped[int] = mapped_column(Integer, default=200)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

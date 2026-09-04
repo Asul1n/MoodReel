@@ -15,25 +15,31 @@ engine = create_engine(
 )
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
-# 老库自动补列（models.py 若加了可空新列，在下方登记即可，启动时 ALTER 补上）
-_MOVIE_META_COLS = {
-    "intro": "TEXT",
-    "poster": "VARCHAR(500)",
-    "rating": "FLOAT",
-    "genres": "VARCHAR(200)",
+# 老库自动补列（models.py 若加了可空新列，在下方对应表登记即可，启动时 ALTER 补上）
+_COLUMNS_BY_TABLE = {
+    "movies": {
+        "intro": "TEXT",
+        "poster": "VARCHAR(500)",
+        "rating": "FLOAT",
+        "genres": "VARCHAR(200)",
+    },
+    "reviews": {
+        "review_time": "VARCHAR(32)",
+    },
 }
 
 
 def _migrate() -> None:
     """对已存在的表补新增的可空列（新建表由 create_all 覆盖）。"""
     insp = inspect(engine)
-    if "movies" not in insp.get_table_names():
-        return
-    existing = {c["name"] for c in insp.get_columns("movies")}
     with engine.begin() as conn:
-        for name, typ in _MOVIE_META_COLS.items():
-            if name not in existing:
-                conn.execute(text(f"ALTER TABLE movies ADD COLUMN {name} {typ}"))
+        for table, cols in _COLUMNS_BY_TABLE.items():
+            if table not in insp.get_table_names():
+                continue
+            existing = {c["name"] for c in insp.get_columns(table)}
+            for name, typ in cols.items():
+                if name not in existing:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {typ}"))
 
 
 def init_db() -> None:

@@ -94,7 +94,8 @@ def stats(db, context: str | None = "whole") -> dict:
 def trend(db, context: str | None = "whole", limit_days: int | None = None) -> list[dict]:
     conds = _scope(db, context)
     label = _label_expr()
-    day = func.date(models.Review.created_at)
+    # 优先按评论"原始发表时间"分桶（爬取的豆瓣评论带时间），否则回退到入库时间
+    day = func.date(func.coalesce(models.Review.review_time, models.Review.created_at))
     rows = db.execute(
         select(day, label, func.count())
         .where(*conds).group_by(day, label)
@@ -206,6 +207,11 @@ def hotspot(db, context: str | None = "whole", top_n: int = 30) -> dict:
 def summary(db, context: str | None = "whole", top_n: int = 30) -> dict:
     st = stats(db, context)
     hs = hotspot(db, context, top_n=top_n)
+    conf = db.scalar(
+        select(func.avg(models.Review.pred_prob)).where(
+            *_scope(db, context), models.Review.pred_prob.isnot(None)
+        )
+    )
     return {
         "context": context or "whole",
         "movie": movie_info(db, context),
@@ -214,6 +220,7 @@ def summary(db, context: str | None = "whole", top_n: int = 30) -> dict:
         "labeled": st["labeled"],
         "unlabeled": st["unlabeled"],
         "by_source": st["by_source"],
+        "avg_confidence": round(float(conf), 3) if conf is not None else None,
         "trend": trend(db, context),
         "top_words": hs["keywords"][:10],
         "cloud": hs["cloud"],

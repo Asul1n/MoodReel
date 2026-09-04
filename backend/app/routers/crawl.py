@@ -19,7 +19,7 @@ _META_KEYS = ("intro", "poster", "rating", "genres")
 class CrawlStart(BaseModel):
     source: str = Field(pattern="^(imdb|douban)$")
     query: str = Field(min_length=1, max_length=200, description="片名或 movie_id")
-    limit: int = Field(60, ge=1, le=100)
+    limit: int = Field(200, ge=1, le=500)
 
 
 # 注意：静态路由 /movies、/movie/{id} 必须声明在动态路由 /{job_id} 之前，避免被抢占匹配。

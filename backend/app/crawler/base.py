@@ -20,7 +20,8 @@ class MovieRef:
 @dataclass
 class ReviewItem:
     text: str
-    stars: int | None = None  # 豆瓣 1-5；IMDB 无则 None
+    stars: int | None = None        # 豆瓣 1-5；IMDB 无则 None
+    time: str | None = None         # 原始发表时间 YYYY-MM-DD（趋势图用）
 
 
 class CrawlSource:

@@ -93,7 +93,9 @@ def parse_interests(text: str) -> list[ReviewItem]:
                 stars = int(rating.get("value"))
             except (TypeError, ValueError):
                 stars = None
-        out.append(ReviewItem(text=comment, stars=stars))
+        created = (it.get("create_time") or "").strip()
+        created_date = created[:10] if created else None   # YYYY-MM-DD
+        out.append(ReviewItem(text=comment, stars=stars, time=created_date))
     return out
 
 
@@ -166,11 +168,11 @@ class DoubanCrawler(CrawlSource):
         text = self._get(url, _headers_movie())
         return parse_subjects(text) if text else []
 
-    def fetch(self, movie: MovieRef, limit: int = 60) -> list[ReviewItem]:
+    def fetch(self, movie: MovieRef, limit: int = 200) -> list[ReviewItem]:
         sid = (movie.movie_id or "").split("douban:")[-1]
         if not sid.isdigit():
             return []
-        limit = max(1, min(int(limit or 60), 100))
+        limit = max(1, min(int(limit or 200), 200))
         fetched: list[ReviewItem] = []
         start = 0
         while len(fetched) < limit:
