@@ -1,8 +1,9 @@
-"""评论热点挖掘模块路由：Top 热点词 / 褒贬倾向词 / 词云数据。
+"""评论热点挖掘模块路由：Top 热点词 / 词云 / 褒贬倾向词。"""
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
-成员B基于 app/services/nlp.py 实现后接通。
-"""
-from fastapi import APIRouter, HTTPException, Query
+from ..db import get_db
+from ..services import analytics
 
 router = APIRouter(prefix="/hotspot", tags=["hotspot"])
 
@@ -11,11 +12,7 @@ router = APIRouter(prefix="/hotspot", tags=["hotspot"])
 def hotspot(
     context: str = Query("whole", description="whole 或 movie:{movie_id}"),
     top_n: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
 ) -> dict:
-    # 返回示例结构：
-    # {
-    #   "context": ..., "keywords": [{"word","weight"}],
-    #   "polarity_pos": [{"word","weight"}], "polarity_neg": [...],
-    #   "cloud": [{"word","weight"}]
-    # }
-    raise HTTPException(status_code=501, detail="成员B实现：热点挖掘（见 services/nlp.py）")
+    """返回 keywords / cloud / polarity.{pos,neg}，供热点页与词云渲染。"""
+    return analytics.hotspot(db, context, top_n=top_n)
