@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .db import init_db
@@ -54,3 +55,7 @@ app.include_router(crawl.router)
 app.include_router(sentiment.router)
 app.include_router(hotspot.router)
 app.include_router(viz.router)
+
+# 本地静态资源（下载到本地的海报等）
+config.STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(config.STATIC_DIR)), name="static")

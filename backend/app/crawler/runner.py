@@ -11,7 +11,9 @@ sample_pack 离线样本兜底（status=degraded）。在线抓取成功后，�
 import logging
 import threading
 
-from .. import models
+import requests
+
+from .. import config, models
 from ..db import SessionLocal
 from . import samples
 from .base import MovieRef
@@ -70,6 +72,28 @@ def _try_online(db, job) -> bool:
     return True
 
 
+def _localize_poster(movie: MovieRef, url: str) -> str | None:
+    """把豆瓣海报下载到本地 static/posters/，返回本地路径；失败返回 None。
+
+    目的：绕开豆瓣图床防盗/Referer 校验，让前端始终只连我们后端。
+    """
+    try:
+        r = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Referer": "https://movie.douban.com/",
+        }, timeout=20)
+        if r.status_code != 200 or not r.content:
+            return None
+        d = config.STATIC_DIR / "posters"
+        d.mkdir(parents=True, exist_ok=True)
+        fn = movie.movie_id.replace(":", "_") + ".jpg"
+        (d / fn).write_bytes(r.content)
+        return f"/static/posters/{fn}"
+    except Exception:
+        return None
+
+
 def _apply_meta(db, crawler, movie: MovieRef) -> None:
     """把豆瓣详情接口的影片元数据写进 movies（失败静默，不强依赖）。"""
     fetch_meta = getattr(crawler, "movie_meta", None)
@@ -87,6 +111,12 @@ def _apply_meta(db, crawler, movie: MovieRef) -> None:
     for field in _META_FIELDS:
         if meta.get(field) is not None:
             setattr(m, field, meta[field])
+    # 海报：优先下载到本地伺服，规避豆瓣防盗；失败则保留原外链
+    poster = meta.get("poster")
+    if poster and str(poster).startswith("http"):
+        local = _localize_poster(movie, str(poster))
+        if local:
+            m.poster = local
     db.commit()
 
 

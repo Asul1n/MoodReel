@@ -20,6 +20,9 @@ DB_PATH = _abs(os.getenv("MOODREEL_DB", str(BASE_DIR / "data" / "moodreel.db")))
 # 模型目录（model.pt 等）
 MODEL_DIR = Path(_abs(os.getenv("MOODREEL_MODEL_DIR", str(BASE_DIR / "models"))))
 
+# 本地静态资源（下载到本地的海报等，经 /static 伺服）
+STATIC_DIR = BASE_DIR / "static"
+
 # 腾讯 AI 情感分析 API（备选中文通道；当前默认用百度，见下）
 TENCENT_APPID = os.getenv("TENCENT_APPID", "")
 TENCENT_SECRET_KEY = os.getenv("TENCENT_SECRET_KEY", "")
