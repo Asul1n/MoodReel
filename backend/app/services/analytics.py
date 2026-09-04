@@ -55,9 +55,8 @@ def _label_expr():
         (models.Review.ground_truth.isnot(None), models.Review.ground_truth),
         (models.Review.lang == "zh", case(
             (models.Review.stars >= 4, "positive"),
-            (models.Review.stars == 3, "neutral"),
-            (models.Review.stars.isnot(None), "negative"),
-            else_=None)),
+            (models.Review.stars <= 2, "negative"),
+            else_=None)),   # 3 星(中性)不派极性 -> 归 unlabeled
         else_=None,
     ).label("label")
 
@@ -78,15 +77,16 @@ def stats(db, context: str | None = "whole") -> dict:
             .group_by(models.Review.source)
         ).all()
     )
-    dist = {k: counts.get(k, 0) for k in ("positive", "negative", "neutral")}
+    # 统一二类口径：positive / negative；中性或未标注一律归 unlabeled
+    pos = counts.get("positive", 0)
+    neg = counts.get("negative", 0)
     total = sum(counts.values())
-    unlabeled = counts.get(None, 0)
     return {
         "context": context or "whole",
         "total": total,
-        "labeled": total - unlabeled,
-        "unlabeled": unlabeled,
-        "dist": dist,
+        "labeled": pos + neg,
+        "unlabeled": total - pos - neg,
+        "dist": {"positive": pos, "negative": neg},
         "by_source": by_source,
     }
 

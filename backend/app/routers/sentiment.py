@@ -49,19 +49,14 @@ def _en_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
 
 
 def _zh_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
-    if deepseek.enabled():
-        results, elapsed_ms, throughput = deepseek.analyze_batch(texts)
-        return schemas.AnalyzeBatchOut(
-            results=results, count=len(texts), elapsed_ms=elapsed_ms, throughput=throughput
-        )
-    from ..services import baidu  # 回退通道（可选）
-    if baidu.enabled():
-        results, elapsed_ms, throughput = baidu.analyze_batch(texts)
-        return schemas.AnalyzeBatchOut(
-            results=results, count=len(texts), elapsed_ms=elapsed_ms, throughput=throughput
-        )
-    raise HTTPException(status_code=503,
-                        detail="中文情感通道未启用：请在 backend/.env 配置 DEEPSEEK_API_KEY（或百度 BAIDU_*）")
+    """中文 -> DeepSeek（唯一中文通道）。"""
+    if not deepseek.enabled():
+        raise HTTPException(status_code=503,
+                            detail="中文情感通道未启用：请在 backend/.env 配置 DEEPSEEK_API_KEY 并 DEEPSEEK_ENABLED=true")
+    results, elapsed_ms, throughput = deepseek.analyze_batch(texts)
+    return schemas.AnalyzeBatchOut(
+        results=results, count=len(texts), elapsed_ms=elapsed_ms, throughput=throughput
+    )
 
 
 @router.post("/en", response_model=schemas.AnalyzeBatchOut)
@@ -140,11 +135,7 @@ def compare(req: CompareReq) -> dict:
     if lang == "zh" and deepseek.enabled():
         (item,) = deepseek.analyze_batch([req.text])[0][:1]
         out["deepseek"] = item
-    elif lang == "zh":
-        from ..services import baidu
-        if baidu.enabled():
-            out["baidu"] = baidu.analyze(req.text)
     if len(out) < 3:
         raise HTTPException(status_code=503,
-                            detail="暂无可用的情感引擎：英文需本地模型，中文需 DeepSeek/百度")
+                            detail="暂无可用的情感引擎：英文需本地模型，中文需配置 DeepSeek")
     return out

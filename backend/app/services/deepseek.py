@@ -9,6 +9,7 @@
 默认每次最多 15 条打包成一个请求以省 token；解析失败自动重试一次。
 """
 import json
+import logging
 import re
 import time
 
@@ -16,13 +17,16 @@ import requests
 
 from .. import config
 
+logger = logging.getLogger("moodreel")
+
 BATCH = 15
-LABELS = {"positive", "neutral", "negative"}
+LABELS = {"positive", "negative"}  # 统一二类口径；中性用低置信度表达
 _SYSTEM = "你是电影评论情感分析器。只输出 JSON，不要输出任何多余文字。"
 _USER = (
-    "判断下面每条电影评论的情感极性。"
-    "严格输出 JSON：{{\"results\":[{{\"label\":\"positive|neutral|negative\","
-    "\"confidence\":0~1 小数}},...]}}，长度与输入完全一致、顺序一一对应，不要回显评论原文。\n"
+    "判断下面每条电影评论的情感偏向，对每条输出一个 0~1 的正面程度 positive_prob：\n"
+    "0=非常负面，1=非常正面，0.5=完全中性。越接近 0 或 1 表示情感越强烈。\n"
+    "严格输出 JSON：{{\"results\":[{{\"positive_prob\":0.0~1.0 小数}},...]}}，"
+    "长度与输入完全一致、顺序一一对应，不要回显评论原文。\n"
     "评论列表：\n{items}"
 )
 
@@ -87,18 +91,27 @@ def _chat(texts: list[str]) -> list[dict]:
 def classify(texts: list[str]) -> list[dict]:
     """分批打标。返回 [{label, prob}, ...]，长度与输入一致。"""
     out: list[dict] = []
-    for i in range(0, len(texts), BATCH):
+    total = len(texts)
+    for i in range(0, total, BATCH):
         chunk = texts[i:i + BATCH]
+        logger.info("DeepSeek 打标进度 %d/%d 条（本批 %d 条）", min(i + len(chunk), total), total, len(chunk))
         raw = _chat(chunk)
         for r in raw:
-            label = str((r or {}).get("label", "")).lower()
-            if label not in LABELS:
-                label = "neutral"
+            v = None
+            if isinstance(r, dict):
+                v = r.get("positive_prob")
+                # 兼容旧版返回：label/confidence → 换算成正面程度
+                if v is None and r.get("label") is not None:
+                    lab = str(r["label"]).lower()
+                    v = {"positive": 1.0, "negative": 0.0, "neutral": 0.5}.get(lab)
             try:
-                conf = float(r.get("confidence"))
+                v = float(v)
             except (TypeError, ValueError):
-                conf = 1.0
-            out.append({"label": label, "prob": round(min(max(conf, 0.0), 1.0), 4)})
+                v = 0.5
+            v = min(max(v, 0.0), 1.0)
+            # 二类标签 + 置信度(方向强度)：0.5 视为中性 → 置信度趋近 0.5
+            label = "positive" if v >= 0.5 else "negative"
+            out.append({"label": label, "prob": round(max(v, 1 - v), 4)})
     if len(out) != len(texts):
         raise RuntimeError(f"DeepSeek 返回条数不符：期望 {len(texts)}，实际 {len(out)}")
     return out
