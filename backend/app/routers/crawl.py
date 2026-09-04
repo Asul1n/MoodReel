@@ -19,7 +19,7 @@ _META_KEYS = ("intro", "poster", "rating", "genres")
 class CrawlStart(BaseModel):
     source: str = Field(pattern="^(imdb|douban)$")
     query: str = Field(min_length=1, max_length=200, description="片名或 movie_id")
-    limit: int = Field(200, ge=1, le=500)
+    limit: int = Field(200, ge=1, le=1000, description="抓取条数上限(默认200)")
     refresh: bool = Field(False, description="true=强制重抓；false=该片已有评论则复用跳过抓取")
 
 
