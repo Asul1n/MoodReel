@@ -4,7 +4,7 @@ import {
   Review,
   KeywordItem,
   PolarityData,
-  TrendItem,
+  TrendDay,
   MOCK_DIST,
   MOCK_REVIEWS,
   MOCK_KEYWORDS,
@@ -42,8 +42,8 @@ export function fetchPolarity(): PolarityData {
   return MOCK_POLARITY;
 }
 
-// 新增评论时间趋势（规格 §5.4 trend，依据 created_at）
-export function fetchTrend(): TrendItem[] {
+// 每日评论趋势（每日正/负评数，供 Steam 风格柱状图）
+export function fetchTrend(): TrendDay[] {
   // TODO: 真实实现 GET `${BASE_URL}/viz/summary?context=...` 取 trend
   return MOCK_TREND;
 }

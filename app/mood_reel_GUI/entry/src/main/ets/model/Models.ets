@@ -23,7 +23,7 @@ export interface Review {
   prob: number;   // 0~1
 }
 
-// 热点词（词云 / Top 热点词共用）
+// 热点词（Top 热点词）
 export interface KeywordItem {
   keyword: string;
   weight: number; // 0~1
@@ -40,10 +40,11 @@ export interface PolarityData {
   neg: PolarityItem[];
 }
 
-// 趋势点（累计评论数）
-export interface TrendItem {
-  label: string;
-  count: number;
+// 每日评论趋势（Steam 风格柱状图：横轴连续日期，每日正/负评数）
+export interface TrendDay {
+  date: string;      // YYYY-MM-DD
+  positive: number;  // 当日好评数
+  negative: number;  // 当日差评数
 }
 
 // 搜索历史
@@ -93,12 +94,25 @@ export const MOCK_POLARITY: PolarityData = {
   ],
 };
 
-export const MOCK_TREND: TrendItem[] = [
-  { label: '周一', count: 12 },
-  { label: '周二', count: 28 },
-  { label: '周三', count: 45 },
-  { label: '周四', count: 58 },
-  { label: '周五', count: 76 },
-  { label: '周六', count: 90 },
-  { label: '周日', count: 100 },
+export const MOCK_TREND: TrendDay[] = [
+  { date: '2024-01-01', positive: 3, negative: 1 },
+  { date: '2024-01-02', positive: 5, negative: 0 },
+  { date: '2024-01-03', positive: 0, negative: 0 },
+  { date: '2024-01-04', positive: 8, negative: 2 },
+  { date: '2024-01-05', positive: 6, negative: 4 },
+  { date: '2024-01-06', positive: 0, negative: 0 },
+  { date: '2024-01-07', positive: 12, negative: 3 },
+  { date: '2024-01-08', positive: 9, negative: 5 },
+  { date: '2024-01-09', positive: 4, negative: 1 },
+  { date: '2024-01-10', positive: 0, negative: 2 },
+  { date: '2024-01-11', positive: 15, negative: 6 },
+  { date: '2024-01-12', positive: 11, negative: 8 },
+  { date: '2024-01-13', positive: 7, negative: 2 },
+  { date: '2024-01-14', positive: 0, negative: 0 },
+  { date: '2024-01-15', positive: 10, negative: 4 },
+  { date: '2024-01-16', positive: 13, negative: 5 },
+  { date: '2024-01-17', positive: 6, negative: 3 },
+  { date: '2024-01-18', positive: 0, negative: 1 },
+  { date: '2024-01-19', positive: 9, negative: 2 },
+  { date: '2024-01-20', positive: 5, negative: 0 },
 ];

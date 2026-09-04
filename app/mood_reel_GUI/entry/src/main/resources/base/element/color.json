@@ -2,11 +2,11 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#FFFFFF"
+      "value": "#1A2C3E"
     },
     {
       "name": "page_background",
-      "value": "#F1F3F5"
+      "value": "#F5F7FA"
     },
     {
       "name": "card_background",
@@ -14,19 +14,23 @@
     },
     {
       "name": "text_main",
-      "value": "#333333"
+      "value": "#1A2C3E"
     },
     {
       "name": "text_secondary",
-      "value": "#888888"
+      "value": "#999999"
     },
     {
       "name": "primary",
-      "value": "#3F51B5"
+      "value": "#1A2C3E"
+    },
+    {
+      "name": "accent",
+      "value": "#1890FF"
     },
     {
       "name": "track",
-      "value": "#E0E0E0"
+      "value": "#E5E9EF"
     }
   ]
 }

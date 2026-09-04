@@ -16,19 +16,19 @@ export struct TabSettings {
         );
       }
     } catch (err) {
-      // 颜色模式设置失败时忽略，不影响其它功能
+      // 颜色模式设置失败时忽略
     }
   }
 
   build() {
     Column() {
       Text('设置')
-        .fontSize(20)
+        .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor($r('app.color.text_main'))
-        .margin({ top: 20, bottom: 6 });
+        .margin({ top: 24, bottom: 6 });
       Text('主题 / 采集源')
-        .fontSize(13)
+        .fontSize(14)
         .fontColor($r('app.color.text_secondary'))
         .margin({ bottom: 12 });
 
@@ -36,10 +36,10 @@ export struct TabSettings {
       Row() {
         Column() {
           Text('夜间模式')
-            .fontSize(15)
+            .fontSize(16)
             .fontColor($r('app.color.text_main'));
           Text('开启后应用深色外观')
-            .fontSize(12)
+            .fontSize(14)
             .fontColor($r('app.color.text_secondary'))
             .margin({ top: 2 });
         }
@@ -53,27 +53,34 @@ export struct TabSettings {
           });
       }
       .width('100%')
-      .padding(14)
+      .padding(16)
       .backgroundColor($r('app.color.card_background'))
-      .borderRadius(12);
+      .borderRadius(16)
+      .shadow({ radius: 16, color: '#141A2C3E', offsetX: 0, offsetY: 2 });
 
       // 采集源选择
       Column() {
         Text('采集源')
-          .fontSize(12)
+          .fontSize(14)
           .fontColor($r('app.color.text_secondary'));
         Row({ space: 12 }) {
           ForEach(SOURCE_OPTIONS, (opt: SourceOption) => {
             Text(opt.name)
-              .fontSize(14)
+              .fontSize(16)
               .fontWeight(this.crawlSource === opt.value ? FontWeight.Bold : FontWeight.Normal)
-              .fontColor(this.crawlSource === opt.value ? $r('app.color.primary') : $r('app.color.text_secondary'))
-              .padding({ left: 20, right: 20, top: 8, bottom: 8 })
+              .fontColor(this.crawlSource === opt.value ? $r('app.color.accent') : $r('app.color.text_secondary'))
+              .padding({ left: 22, right: 22, top: 8, bottom: 8 })
               .border({
                 width: 1,
-                color: this.crawlSource === opt.value ? $r('app.color.primary') : $r('app.color.text_secondary')
+                color: this.crawlSource === opt.value ? $r('app.color.accent') : $r('app.color.text_secondary')
               })
               .borderRadius(18)
+              .stateStyles({
+                pressed: {
+                  .scale({ x: 0.95, y: 0.95 })
+                }
+              })
+              .animation({ duration: 120 })
               .onClick(() => {
                 this.crawlSource = opt.value;
               });
@@ -83,9 +90,10 @@ export struct TabSettings {
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)
-      .padding(14)
+      .padding(16)
       .backgroundColor($r('app.color.card_background'))
-      .borderRadius(12)
+      .borderRadius(16)
+      .shadow({ radius: 16, color: '#141A2C3E', offsetX: 0, offsetY: 2 })
       .margin({ top: 16 });
     }
     .width('100%')
