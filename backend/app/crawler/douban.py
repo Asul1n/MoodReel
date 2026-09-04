@@ -22,6 +22,7 @@ import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
+from bs4 import BeautifulSoup
 
 from .. import config
 from .base import CrawlSource, MovieRef, ReviewItem
@@ -33,13 +34,17 @@ SEARCH_API = "https://movie.douban.com/j/subject_suggest?q={q}"
 INTERESTS_API = ("https://m.douban.com/rexxar/api/v2/movie/{sid}/interests?"
                  "count={count}&order_by={order}&start={start}")
 MOVIE_DETAIL_API = "https://m.douban.com/rexxar/api/v2/movie/{sid}"
+HTML_COMMENTS_TPL = ("https://movie.douban.com/subject/{sid}/comments"
+                     "?start={start}&limit=20&status=P&sort=new_score")
 
 _MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
               "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
               "Mobile/15E148 Safari/604.1")
-PAGE_SIZE = 20
+PAGE_SIZE = 50                     # rexxar 单页大小（实测最大 50/页）
 ORDERS = ("hot", "time")            # 多排序并集：热门 + 最新
-MAX_LIMIT = 1000                    # 单次抓取上限（放开到几千量级用分批多次）
+MAX_LIMIT = 5000                    # 单次抓取上限
+_DESKTOP_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+               "Chrome/120.0.0.0 Safari/537.36")
 
 
 def _headers_movie() -> dict:
@@ -50,6 +55,36 @@ def _headers_movie() -> dict:
 def _headers_m(sid: str) -> dict:
     return {"User-Agent": _MOBILE_UA, "Accept-Language": "zh-CN,zh;q=0.9",
             "Referer": f"https://m.douban.com/movie/subject/{sid}/"}
+
+
+def _headers_html(sid: str) -> dict:
+    """网页版短评页（HTML 深翻用桌面 UA + 电影 Referer）。"""
+    return {"User-Agent": _DESKTOP_UA, "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": f"https://movie.douban.com/subject/{sid}/"}
+
+
+def _parse_html_comments(html: str) -> list[ReviewItem]:
+    """解析网页版短评 HTML 的 div.comment-item（补充 rexxar 拿不到的深页）。"""
+    soup = BeautifulSoup(html or "", "html.parser")
+    out: list[ReviewItem] = []
+    for el in soup.select("div.comment-item"):
+        node = el.select_one("span.short") or el.select_one(".comment-content")
+        text = node.get_text(" ", strip=True) if node is not None else ""
+        if not text:
+            continue
+        stars: int | None = None
+        st = el.select_one("span[class*=allstar]")
+        if st is not None:
+            for cl in (st.get("class") or []):
+                m = re.fullmatch(r"allstar([1-5])0", cl)
+                if m:
+                    stars = int(m.group(1))
+                    break
+        tm = el.select_one(".comment-time")
+        title = (tm.get("title") or "") if tm is not None else ""
+        created = title[:10] if "-" in title else ""
+        out.append(ReviewItem(text=text, stars=stars, time=created or None))
+    return out
 
 
 # ---------- 无状态解析函数（可脱离网络单测） ----------
@@ -206,49 +241,87 @@ class DoubanCrawler(CrawlSource):
         seen: set[str] = set()
         lock = threading.Lock()
         done = threading.Event()
-        workers = max(1, int(config.DOUBAN_WORKERS))
-        logger.info("豆瓣抓取开始 movie=%s 目标 %d 条 (多排序%s, workers=%d)",
-                    movie.movie_id, limit, ORDERS, workers)
+        logger.info("豆瓣抓取开始 movie=%s 目标 %d 条 (HTML深翻 + 多排序%s)",
+                    movie.movie_id, limit, ORDERS)
 
-        def pull(order: str) -> None:
-            start = 0
-            while not done.is_set():
-                if len(collected) >= limit:      # 近似读数，容忍轻微超量后截断
-                    done.set()
-                    return
-                url = INTERESTS_API.format(sid=sid, count=PAGE_SIZE,
-                                           order=order, start=start)
-                text = self._get(url, _headers_m(sid))
-                page = parse_interests(text) if text else []
-                if not page:                      # 空页/被拦 -> 换下一路排序
-                    logger.warning("豆瓣抓取 movie=%s order=%s start=%d 无数据/被拦，切下一路",
-                                   movie.movie_id, order, start)
-                    return
-                added = 0
-                with lock:
-                    for it in page:
-                        if len(collected) >= limit:
-                            break
-                        if it.text and it.text not in seen:
-                            seen.add(it.text)
-                            collected.append(it)
-                            added += 1
+        # ---- 阶段1：HTML 网页短评深翻（实测单片量最大来源）----
+        start = 0
+        dup_pages = 0
+        logger.info("豆瓣 HTML 深翻 movie=%s 当前 %d/%d",
+                    movie.movie_id, min(len(collected), limit), limit)
+        while len(collected) < limit and start < 5000:
+            url = HTML_COMMENTS_TPL.format(sid=sid, start=start)
+            text = self._get(url, _headers_html(sid))
+            page = _parse_html_comments(text) if text else []
+            if not page:                              # 404/空/被拦 → 窗口尽头
+                logger.info("豆瓣 HTML 深翻到头 movie=%s 共 %d/%d",
+                            movie.movie_id, min(len(collected), limit), limit)
+                break
+            added = 0
+            for it in page:
+                if len(collected) >= limit:
+                    break
+                if it.text and it.text not in seen:
+                    seen.add(it.text)
+                    collected.append(it)
+                    added += 1
+            if added:
+                dup_pages = 0
+            else:
+                dup_pages += 1
+                if dup_pages >= 3:                    # 连续 3 页无新内容
+                    logger.info("HTML 连续无新 movie=%s 结束", movie.movie_id)
+                    break
+            start += 20
+            time.sleep(random.uniform(0.5, 1.2))
+
+        # ---- 阶段2：rexxar 多排序补足 ----
+        if len(collected) < limit:
+            workers = max(1, int(config.DOUBAN_WORKERS))
+
+            def pull(order: str) -> None:
+                o_start = 0
+                o_dup = 0
+                while not done.is_set():
                     if len(collected) >= limit:
                         done.set()
-                logger.info("豆瓣抓取 movie=%s order=%s 累计 %d/%d 条",
-                            movie.movie_id, order, min(len(collected), limit), limit)
-                if len(page) < PAGE_SIZE or added == 0:   # 到末页 或 全是重复
-                    return
-                start += PAGE_SIZE
-                time.sleep(random.uniform(1.0, 2.5))      # 限速（可配更保守）
+                        return
+                    url = INTERESTS_API.format(sid=sid, count=PAGE_SIZE,
+                                               order=order, start=o_start)
+                    text = self._get(url, _headers_m(sid))
+                    page = parse_interests(text) if text else []
+                    if not page:                      # 空页/被拦 -> 换下一路排序
+                        return
+                    added = 0
+                    with lock:
+                        for it in page:
+                            if len(collected) >= limit:
+                                break
+                            if it.text and it.text not in seen:
+                                seen.add(it.text)
+                                collected.append(it)
+                                added += 1
+                        if len(collected) >= limit:
+                            done.set()
+                    logger.info("豆瓣 rexxar movie=%s order=%s 累计 %d/%d",
+                                movie.movie_id, order, min(len(collected), limit), limit)
+                    if added:
+                        o_dup = 0
+                    else:
+                        o_dup += 1
+                        if o_dup >= 3:
+                            return
+                    o_start += PAGE_SIZE
+                    time.sleep(random.uniform(1.0, 2.5))
 
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = [ex.submit(pull, o) for o in ORDERS]
-            while not done.is_set() and not all(f.done() for f in futures):
-                time.sleep(0.2)
-            done.set()
-            for f in futures:                              # 吸收异常，不阻断
-                f.cancel()
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [ex.submit(pull, o) for o in ORDERS]
+                while not done.is_set() and not all(f.done() for f in futures):
+                    time.sleep(0.2)
+                done.set()
+                for f in futures:
+                    f.cancel()
+
         return collected[:limit]
 
     def movie_meta(self, movie: MovieRef) -> dict | None:
