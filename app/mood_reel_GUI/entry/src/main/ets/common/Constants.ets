@@ -1,7 +1,7 @@
 // 常量
 
 // 后端服务地址（联调时改为宿主机局域网 IP 或模拟器 10.0.2.2）
-export const BASE_URL: string = 'http://127.0.0.1:8000';
+export const BASE_URL: string = 'http://192.168.10.183:8000';
 
 // 采集源选项（设置页选择，主页搜索时读取）
 export interface SourceOption {

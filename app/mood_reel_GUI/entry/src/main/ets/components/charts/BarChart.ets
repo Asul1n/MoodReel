@@ -30,7 +30,7 @@ export struct BarChart {
             .fontSize(11)
             .fontColor($r('app.color.text_secondary'))
             .width(20);
-          Text(it.keyword)
+          Text(it.word)
             .fontSize(13)
             .fontColor($r('app.color.text_main'))
             .width(56);
@@ -48,7 +48,7 @@ export struct BarChart {
           }
           .layoutWeight(1)
           .margin({ left: 8, right: 8 });
-          Text(`${Math.round(it.weight * 100)}`)
+          Text(`${it.weight}`)
             .fontSize(11)
             .fontColor($r('app.color.text_secondary'))
             .width(30)
@@ -56,7 +56,7 @@ export struct BarChart {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center);
-      }, (it: KeywordItem) => it.keyword);
+      }, (it: KeywordItem) => it.word);
     }
     .width('100%')
     .onVisibleAreaChange([0.0, 1.0], (isVisible: boolean, currentRatio: number) => {

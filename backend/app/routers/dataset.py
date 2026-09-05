@@ -80,10 +80,17 @@ def _label_if_possible(review: models.Review) -> None:
             (item,) = textcnn.analyze_batch([review.text])[0][:1]
             review.pred_label, review.pred_prob, review.model = \
                 item["label"], item["prob"], "textcnn"
-        elif review.lang == "zh" and deepseek.enabled():
-            lab = deepseek.classify([review.text])[0]
-            review.pred_label, review.pred_prob, review.model = \
-                lab["label"], lab["prob"], "deepseek"
+        elif review.lang == "zh":
+            from ..services import textcnn_zh
+            if textcnn_zh.is_ready():
+                res, _, _ = textcnn_zh.analyze_batch([review.text])
+                item = res[0]
+                review.pred_label, review.pred_prob, review.model = \
+                    item["label"], item["prob"], item["model"]
+            elif deepseek.enabled():
+                lab = deepseek.classify([review.text])[0]
+                review.pred_label, review.pred_prob, review.model = \
+                    lab["label"], lab["prob"], "deepseek"
     except Exception:
         pass  # 不因补标失败影响新增入库
 

@@ -47,7 +47,8 @@ export struct TrendChart {
   }
 
   private shortDate(date: string): string {
-    return date.length >= 10 ? date.substring(5) : date;
+    // 后端返回 "YYYY-MM"（年份-月份），直接展示
+    return date;
   }
 
   build() {
@@ -121,7 +122,7 @@ export struct TrendChart {
                 .fontColor($r('app.color.text_secondary'))
                 .margin({ top: 4 });
             }
-            .width(30)
+            .width(48)
             .alignItems(HorizontalAlign.Center);
           }, (d: TrendDay) => d.date);
         }

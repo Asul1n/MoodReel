@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..db import get_db
-from ..services import deepseek, textcnn
+from ..services import deepseek, textcnn, textcnn_zh
 
 router = APIRouter(prefix="/analyze", tags=["sentiment"])
 _CJK = re.compile(r"[一-鿿]")
@@ -48,12 +48,21 @@ def _en_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
     )
 
 
+def _zh_results(texts: list[str]) -> tuple[list[dict], float, float]:
+    """中文引擎选择：本地 TextCNN_zh 优先（免费/离线），否则 DeepSeek。"""
+    if textcnn_zh.is_ready():
+        return textcnn_zh.analyze_batch(texts)
+    if deepseek.enabled():
+        return deepseek.analyze_batch(texts)
+    raise RuntimeError("中文情感通道不可用：本地模型未就绪，且 DeepSeek 未配置")
+
+
 def _zh_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
-    """中文 -> DeepSeek（唯一中文通道）。"""
-    if not deepseek.enabled():
-        raise HTTPException(status_code=503,
-                            detail="中文情感通道未启用：请在 backend/.env 配置 DEEPSEEK_API_KEY 并 DEEPSEEK_ENABLED=true")
-    results, elapsed_ms, throughput = deepseek.analyze_batch(texts)
+    """中文 -> 本地 TextCNN_zh（优先）/ DeepSeek。"""
+    try:
+        results, elapsed_ms, throughput = _zh_results(texts)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     return schemas.AnalyzeBatchOut(
         results=results, count=len(texts), elapsed_ms=elapsed_ms, throughput=throughput
     )
@@ -91,9 +100,9 @@ def backfill(req: BackfillReq, db: Session = Depends(get_db)) -> dict:
 
     默认只给还没有 pred_label 的评论补标；force=true 则全部覆盖。
     """
-    if not deepseek.enabled():
+    if not (textcnn_zh.is_ready() or deepseek.enabled()):
         raise HTTPException(status_code=503,
-                            detail="DeepSeek 未启用：请在 backend/.env 配置 DEEPSEEK_API_KEY 并 DEEPSEEK_ENABLED=true")
+                            detail="中文情感通道不可用：本地模型未就绪，且 DeepSeek 未配置")
     mid = _context_movie_id(req.context)
     stmt = select(models.Review).order_by(models.Review.id.asc())
     if mid:
@@ -106,18 +115,23 @@ def backfill(req: BackfillReq, db: Session = Depends(get_db)) -> dict:
     if not rows:
         return {"context": req.context, "updated": 0, "model": "deepseek",
                 "message": "没有待补标的评论（force=true 可覆盖已有标签）"}
+    engine = "textcnn_zh" if textcnn_zh.is_ready() else "deepseek"
     try:
-        labels = deepseek.classify([r.text for r in rows])
+        if engine == "textcnn_zh":
+            res, _, _ = textcnn_zh.analyze_batch([r.text for r in rows])
+            labels = [{"label": x["label"], "prob": x["prob"]} for x in res]
+        else:
+            labels = deepseek.classify([r.text for r in rows])
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     for r, lab in zip(rows, labels):
         r.pred_label = lab["label"]
         r.pred_prob = lab["prob"]
-        r.model = "deepseek"
+        r.model = engine
     db.commit()
-    logger.info("backfill context=%s updated=%s model=deepseek", req.context, len(rows))
+    logger.info("backfill context=%s updated=%s model=%s", req.context, len(rows), engine)
     return {"context": req.context, "updated": len(rows),
-            "model": "deepseek", "lang": req.lang}
+            "model": engine, "lang": req.lang}
 
 
 class CompareReq(BaseModel):
@@ -132,10 +146,13 @@ def compare(req: CompareReq) -> dict:
     if lang == "en" and textcnn.is_ready():
         (item,) = textcnn.analyze_batch([req.text])[0][:1]
         out["textcnn"] = item
-    if lang == "zh" and deepseek.enabled():
-        (item,) = deepseek.analyze_batch([req.text])[0][:1]
-        out["deepseek"] = item
+    if lang == "zh":
+        try:
+            results, _, _ = _zh_results([req.text])
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        out[results[0]["model"]] = results[0]
     if len(out) < 3:
         raise HTTPException(status_code=503,
-                            detail="暂无可用的情感引擎：英文需本地模型，中文需配置 DeepSeek")
+                            detail="暂无可用的情感引擎：英文需本地模型，中文需本地模型或 DeepSeek")
     return out
