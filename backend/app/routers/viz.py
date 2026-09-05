@@ -27,8 +27,9 @@ def wordcloud(
         logger.error("词云渲染失败 context=%s: %s", context, exc)
         raise HTTPException(status_code=500, detail=f"词云渲染失败：{exc}")
     ms = (time.perf_counter() - t0) * 1000
-    logger.info("生成词云 context=%s 词数=%d 大小=%.0fKB 耗时=%.0fms",
-                context, len(cloud), len(png) / 1024, ms)
+    logger.info("生成词云 context=%s 输入%d词 实际画%d词 大小=%.0fKB 耗时=%.0fms",
+                context, len(cloud), wordcloud_img._last_placed,
+                len(png) / 1024, ms)
     return Response(content=png, media_type="image/png")
 
 

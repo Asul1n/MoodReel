@@ -1,7 +1,7 @@
 """ORM 模型 —— movies / reviews / crawl_jobs 三表（对应设计规格 §4）。"""
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -58,5 +58,6 @@ class CrawlJob(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/running/done/failed/degraded
     fetched: Mapped[int] = mapped_column(Integer, default=0)
     limit: Mapped[int] = mapped_column(Integer, default=200)
+    refresh: Mapped[bool] = mapped_column(Boolean, default=False)  # true=强制重抓；false=已有评论则复用
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

@@ -54,6 +54,18 @@ def _try_online(db, job) -> bool:
     crawler = CRAWLERS.get(job.source)
     if crawler is None:
         return False
+    # 并发去重：同一 source+query 已有任务在跑 -> 本任务直接复用跳过
+    dup = db.query(models.CrawlJob).filter(
+        models.CrawlJob.source == job.source,
+        models.CrawlJob.query == job.query,
+        models.CrawlJob.status.in_(("pending", "running")),
+        models.CrawlJob.job_id != job.job_id,
+    ).first()
+    if dup is not None:
+        _set(db, job, status="done", fetched=0,
+             error=f"同一抓取任务已在执行({dup.job_id[:8]}…)，已跳过本次")
+        logger.info("影片/查询已在抓取中(%s…)，本任务跳过", dup.job_id)
+        return True
     try:
         refs = crawler.search(job.query)
         if not refs:
@@ -62,6 +74,18 @@ def _try_online(db, job) -> bool:
         movie = refs[0]
         logger.info("解析到影片 %s《%s》%s",
                     movie.movie_id, movie.title, f"({movie.year})" if movie.year else "")
+        # 幂等/缓存：refresh=false 且该片已有在线评论 -> 复用跳过重抓
+        if not getattr(job, "refresh", False):
+            live_src = f"{movie.source}_live"
+            existing = db.query(models.Review).filter(
+                models.Review.movie_id == movie.movie_id,
+                models.Review.source == live_src).count()
+            if existing:
+                _set(db, job, status="done", fetched=existing,
+                     error=f"该片已有 {existing} 条评论，已复用跳过抓取（refresh=true 可强制重抓）")
+                logger.info("影片 %s 已有 %s 条评论，跳过抓取（refresh=true 可强制重抓）",
+                            movie.movie_id, existing)
+                return True
         logger.info("开始在线抓取影片 %s，limit=%s", movie.movie_id, job.limit)
         items = crawler.fetch(movie, job.limit)
         if not items:
@@ -81,8 +105,14 @@ def _localize_poster(movie: MovieRef, url: str) -> str | None:
     """把豆瓣海报下载到本地 static/posters/，返回本地路径；失败返回 None。
 
     目的：绕开豆瓣图床防盗/Referer 校验，让前端始终只连我们后端。
+    海报已存在本地则直接复用，不重复下载。
     """
     try:
+        d = config.STATIC_DIR / "posters"
+        fn = movie.movie_id.replace(":", "_") + ".jpg"
+        full = d / fn
+        if full.exists():
+            return f"/static/posters/{fn}"   # 已缓存
         r = requests.get(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                           "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -90,10 +120,8 @@ def _localize_poster(movie: MovieRef, url: str) -> str | None:
         }, timeout=20)
         if r.status_code != 200 or not r.content:
             return None
-        d = config.STATIC_DIR / "posters"
         d.mkdir(parents=True, exist_ok=True)
-        fn = movie.movie_id.replace(":", "_") + ".jpg"
-        (d / fn).write_bytes(r.content)
+        full.write_bytes(r.content)
         return f"/static/posters/{fn}"
     except Exception:
         return None

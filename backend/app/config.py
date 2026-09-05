@@ -34,6 +34,25 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 DEEPSEEK_ENABLED = os.getenv("DEEPSEEK_ENABLED", "false").lower() == "true"
 
+# 豆瓣反爬池（可选，默认匿名单会话）
+def _list_env(name: str) -> list[str]:
+    return [s.strip() for s in os.getenv(name, "").splitlines() if s.strip()]
+
+
+def _douban_cookies() -> list[str]:
+    """多账号 cookie：DOUBAN_COOKIES 及其 _2/_3/_4/_5，各存一条完整 Cookie。"""
+    out: list[str] = []
+    for idx in (None, 2, 3, 4, 5):
+        v = os.getenv("DOUBAN_COOKIES" if idx is None else f"DOUBAN_COOKIES_{idx}", "")
+        if v.strip():
+            out.append(v.strip())
+    return out
+
+
+DOUBAN_COOKIES = _douban_cookies()
+DOUBAN_PROXIES = _list_env("DOUBAN_PROXIES")     # 代理，每行一个，如 http://user:pass@ip:port
+DOUBAN_WORKERS = int(os.getenv("DOUBAN_WORKERS", "1"))  # 并发数（默认低调=1）
+
 # 监听
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))

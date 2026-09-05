@@ -1,29 +1,30 @@
 """豆瓣短评采集（中文，成员A）。
 
-豆瓣网页版短评是 JS 渲染，直接 GET 只会拿到"载入中…"空壳；真实评论走**移动端
-rexxar JSON 接口**：
+网页版短评是 JS 渲染，真实评论走**移动端 rexxar JSON 接口**：
     m.douban.com/rexxar/api/v2/movie/{id}/interests?count=&order_by=hot&start=
-每条 interest 含 comment（正文）与 rating.value（星级 1-5）。
+每条 interest 含 comment / rating.value / create_time。
 
-流程：
-- search：subject_suggest JSON（片名 → 候选电影；也接受豆瓣纯数字 id）
-- fetch ：rexxar interests 分页抓取 comment + 星级
-
-反爬策略（豆瓣限制较严）：
-- 会话先访问 douban.com 拿 bid cookie；
-- iPhone UA + 对应 Referer；
-- 分页间 1-2s 随机间隔、失败指数退避。
-注意：需在**能打开豆瓣的机器**上运行；返回非 JSON/无数据时按空处理（runner 会离线兜底）。
+反爬能力（可配置、默认低调匿名单会话）：
+- **身份池**：.env 的 DOUBAN_COOKIES（每行一个账号 cookie）→ 多会话轮换；
+  无 cookie 则匿名（单会话）。
+- **代理池**：DOUBAN_PROXIES（每行一个，http://user:pass@ip:port）→ 每次请求随机换。
+- **多排序并集去重**：同片按 hot + time 两路拉取，按评论文本去重，提高单次产量。
+- **并发**：DOUBAN_WORKERS（默认 1，低调）；多路并发时共享轮换与去重。
+- 被拦(403/429/空页) → 指数退避 + 换身份/代理重试。
 """
 import json
 import logging
 import random
 import re
+import threading
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
+from bs4 import BeautifulSoup
 
+from .. import config
 from .base import CrawlSource, MovieRef, ReviewItem
 
 logger = logging.getLogger("moodreel")
@@ -31,13 +32,19 @@ logger = logging.getLogger("moodreel")
 HOME = "https://www.douban.com"
 SEARCH_API = "https://movie.douban.com/j/subject_suggest?q={q}"
 INTERESTS_API = ("https://m.douban.com/rexxar/api/v2/movie/{sid}/interests?"
-                 "count={count}&order_by=hot&start={start}")
+                 "count={count}&order_by={order}&start={start}")
 MOVIE_DETAIL_API = "https://m.douban.com/rexxar/api/v2/movie/{sid}"
+HTML_COMMENTS_TPL = ("https://movie.douban.com/subject/{sid}/comments"
+                     "?start={start}&limit=20&status=P&sort=new_score")
 
 _MOBILE_UA = ("Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
               "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 "
               "Mobile/15E148 Safari/604.1")
-PAGE_SIZE = 20
+PAGE_SIZE = 50                     # rexxar 单页大小（实测最大 50/页）
+ORDERS = ("hot", "time")            # 多排序并集：热门 + 最新
+MAX_LIMIT = 5000                    # 单次抓取上限
+_DESKTOP_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+               "Chrome/120.0.0.0 Safari/537.36")
 
 
 def _headers_movie() -> dict:
@@ -48,6 +55,36 @@ def _headers_movie() -> dict:
 def _headers_m(sid: str) -> dict:
     return {"User-Agent": _MOBILE_UA, "Accept-Language": "zh-CN,zh;q=0.9",
             "Referer": f"https://m.douban.com/movie/subject/{sid}/"}
+
+
+def _headers_html(sid: str) -> dict:
+    """网页版短评页（HTML 深翻用桌面 UA + 电影 Referer）。"""
+    return {"User-Agent": _DESKTOP_UA, "Accept-Language": "zh-CN,zh;q=0.9",
+            "Referer": f"https://movie.douban.com/subject/{sid}/"}
+
+
+def _parse_html_comments(html: str) -> list[ReviewItem]:
+    """解析网页版短评 HTML 的 div.comment-item（补充 rexxar 拿不到的深页）。"""
+    soup = BeautifulSoup(html or "", "html.parser")
+    out: list[ReviewItem] = []
+    for el in soup.select("div.comment-item"):
+        node = el.select_one("span.short") or el.select_one(".comment-content")
+        text = node.get_text(" ", strip=True) if node is not None else ""
+        if not text:
+            continue
+        stars: int | None = None
+        st = el.select_one("span[class*=allstar]")
+        if st is not None:
+            for cl in (st.get("class") or []):
+                m = re.fullmatch(r"allstar([1-5])0", cl)
+                if m:
+                    stars = int(m.group(1))
+                    break
+        tm = el.select_one(".comment-time")
+        title = (tm.get("title") or "") if tm is not None else ""
+        created = title[:10] if "-" in title else ""
+        out.append(ReviewItem(text=text, stars=stars, time=created or None))
+    return out
 
 
 # ---------- 无状态解析函数（可脱离网络单测） ----------
@@ -79,7 +116,7 @@ def parse_subjects(text: str) -> list[MovieRef]:
 
 
 def parse_interests(text: str) -> list[ReviewItem]:
-    """解析 rexxar interests JSON -> 短评列表（正文 + 星级，可为空）。"""
+    """解析 rexxar interests JSON -> 短评列表（正文 + 星级 + 发表时间）。"""
     try:
         data = json.loads(text)
     except (ValueError, TypeError):
@@ -126,31 +163,55 @@ def parse_movie_detail(text: str) -> dict:
     }
 
 
-# ---------- 真实抓取 ----------
+# ---------- 真实抓取（身份/代理池 + 并发 + 多排序并集） ----------
 
 class DoubanCrawler(CrawlSource):
     name = "douban"
 
     def __init__(self) -> None:
-        self.session = requests.Session()
-        self._primed = False
+        self._lock = threading.Lock()
+        self._spin = 0
+        cookies = config.DOUBAN_COOKIES or [None]     # 没配 cookie 就是匿名（单会话）
+        self._idents: list[dict] = []
+        for ck in cookies:
+            s = requests.Session()
+            self._prime(s, ck)
+            self._idents.append({"session": s, "cookie": ck})
+        self._proxies = list(config.DOUBAN_PROXIES)
+        logger.info("豆瓣爬虫身份池: %d 个会话, 代理 %d 个, 并发=%d",
+                    len(self._idents), len(self._proxies),
+                    max(1, int(config.DOUBAN_WORKERS)))
 
-    def _ensure_session(self) -> None:
-        """会话先访问一次主页，取得 bid cookie（豆瓣多数接口要求）。"""
-        if self._primed:
-            return
+    def _prime(self, session: requests.Session, cookie: str | None) -> None:
+        """会话先访问一次主页，拿 bid 等 cookie。"""
+        headers = _headers_movie()
+        if cookie:
+            headers["Cookie"] = cookie
         try:
-            self.session.get(HOME, headers=_headers_movie(), timeout=8)
+            session.get(HOME, headers=headers, timeout=8)
         except requests.RequestException:
             pass
-        self._primed = True
 
-    def _get(self, url: str, headers: dict) -> str | None:
-        """GET 返回文本；403/429/网络异常做指数退避重试。"""
-        self._ensure_session()
-        for attempt in range(3):
+    def _pick(self) -> dict:
+        """轮换取一个身份（线程安全）。"""
+        with self._lock:
+            item = self._idents[self._spin % len(self._idents)]
+            self._spin += 1
+            return item
+
+    def _get(self, url: str, headers: dict, retries: int = 3) -> str | None:
+        """带身份/代理轮换的 GET；403/429/异常做指数退避并换身份。"""
+        for attempt in range(retries):
+            ident = self._pick()
+            req_headers = dict(headers)
+            if ident["cookie"]:
+                req_headers["Cookie"] = ident["cookie"]
+            kwargs = {"timeout": 12}
+            if self._proxies:
+                proxy = random.choice(self._proxies)
+                kwargs["proxies"] = {"http": proxy, "https": proxy}
             try:
-                r = self.session.get(url, headers=headers, timeout=12)
+                r = ident["session"].get(url, headers=req_headers, **kwargs)
                 if r.status_code == 200:
                     return r.text
                 if r.status_code in (403, 429):
@@ -175,27 +236,93 @@ class DoubanCrawler(CrawlSource):
         sid = (movie.movie_id or "").split("douban:")[-1]
         if not sid.isdigit():
             return []
-        limit = max(1, min(int(limit or 200), 200))
-        fetched: list[ReviewItem] = []
+        limit = max(1, min(int(limit or 200), MAX_LIMIT))
+        collected: list[ReviewItem] = []
+        seen: set[str] = set()
+        lock = threading.Lock()
+        done = threading.Event()
+        logger.info("豆瓣抓取开始 movie=%s 目标 %d 条 (HTML深翻 + 多排序%s)",
+                    movie.movie_id, limit, ORDERS)
+
+        # ---- 阶段1：HTML 网页短评深翻（实测单片量最大来源）----
         start = 0
-        logger.info("豆瓣抓取开始 movie=%s 目标 %d 条", movie.movie_id, limit)
-        while len(fetched) < limit:
-            url = INTERESTS_API.format(sid=sid, count=PAGE_SIZE, start=start)
-            text = self._get(url, _headers_m(sid))
-            page = parse_interests(text) if text else []
-            if not page:              # 空/被挡
-                logger.warning("豆瓣抓取 movie=%s 第 %d 页为空/被反爬拦截，提前结束",
-                               movie.movie_id, start // PAGE_SIZE + 1)
+        dup_pages = 0
+        logger.info("豆瓣 HTML 深翻 movie=%s 当前 %d/%d",
+                    movie.movie_id, min(len(collected), limit), limit)
+        while len(collected) < limit and start < 5000:
+            url = HTML_COMMENTS_TPL.format(sid=sid, start=start)
+            text = self._get(url, _headers_html(sid))
+            page = _parse_html_comments(text) if text else []
+            if not page:                              # 404/空/被拦 → 窗口尽头
+                logger.info("豆瓣 HTML 深翻到头 movie=%s 共 %d/%d",
+                            movie.movie_id, min(len(collected), limit), limit)
                 break
-            fetched.extend(page)
-            logger.info("豆瓣抓取 movie=%s 翻页进度 %d/%d 条",
-                        movie.movie_id, min(len(fetched), limit), limit)
-            if len(page) < PAGE_SIZE:  # 到末页
-                logger.info("豆瓣抓取 movie=%s 已到末页", movie.movie_id)
-                break
-            start += PAGE_SIZE
-            time.sleep(random.uniform(1.0, 2.0))   # 反爬限速
-        return fetched[:limit]
+            added = 0
+            for it in page:
+                if len(collected) >= limit:
+                    break
+                if it.text and it.text not in seen:
+                    seen.add(it.text)
+                    collected.append(it)
+                    added += 1
+            if added:
+                dup_pages = 0
+            else:
+                dup_pages += 1
+                if dup_pages >= 3:                    # 连续 3 页无新内容
+                    logger.info("HTML 连续无新 movie=%s 结束", movie.movie_id)
+                    break
+            start += 20
+            time.sleep(random.uniform(0.5, 1.2))
+
+        # ---- 阶段2：rexxar 多排序补足 ----
+        if len(collected) < limit:
+            workers = max(1, int(config.DOUBAN_WORKERS))
+
+            def pull(order: str) -> None:
+                o_start = 0
+                o_dup = 0
+                while not done.is_set():
+                    if len(collected) >= limit:
+                        done.set()
+                        return
+                    url = INTERESTS_API.format(sid=sid, count=PAGE_SIZE,
+                                               order=order, start=o_start)
+                    text = self._get(url, _headers_m(sid))
+                    page = parse_interests(text) if text else []
+                    if not page:                      # 空页/被拦 -> 换下一路排序
+                        return
+                    added = 0
+                    with lock:
+                        for it in page:
+                            if len(collected) >= limit:
+                                break
+                            if it.text and it.text not in seen:
+                                seen.add(it.text)
+                                collected.append(it)
+                                added += 1
+                        if len(collected) >= limit:
+                            done.set()
+                    logger.info("豆瓣 rexxar movie=%s order=%s 累计 %d/%d",
+                                movie.movie_id, order, min(len(collected), limit), limit)
+                    if added:
+                        o_dup = 0
+                    else:
+                        o_dup += 1
+                        if o_dup >= 3:
+                            return
+                    o_start += PAGE_SIZE
+                    time.sleep(random.uniform(1.0, 2.5))
+
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futures = [ex.submit(pull, o) for o in ORDERS]
+                while not done.is_set() and not all(f.done() for f in futures):
+                    time.sleep(0.2)
+                done.set()
+                for f in futures:
+                    f.cancel()
+
+        return collected[:limit]
 
     def movie_meta(self, movie: MovieRef) -> dict | None:
         """抓取影片简介/海报/评分等元数据（失败返回 None，不强依赖）。"""

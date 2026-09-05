@@ -94,11 +94,13 @@ def stats(db, context: str | None = "whole") -> dict:
 def trend(db, context: str | None = "whole", limit_days: int | None = None) -> list[dict]:
     conds = _scope(db, context)
     label = _label_expr()
-    # 优先按评论"原始发表时间"分桶（爬取的豆瓣评论带时间），否则回退到入库时间
-    day = func.date(func.coalesce(models.Review.review_time, models.Review.created_at))
+    # 按月统计（YYYY-MM，横轴"年份-月"）；时间优先取评论原始发表时间，否则回退入库时间
+    month = func.strftime("%Y-%m",
+                          func.coalesce(models.Review.review_time,
+                                        models.Review.created_at))
     rows = db.execute(
-        select(day, label, func.count())
-        .where(*conds).group_by(day, label)
+        select(month, label, func.count())
+        .where(*conds).group_by(month, label)
     ).all()
     by_day: dict[str, dict] = {}
     for day, lab, cnt in rows:
