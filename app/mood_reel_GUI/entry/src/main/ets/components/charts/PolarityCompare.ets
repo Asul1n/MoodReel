@@ -5,8 +5,25 @@ import { PolarityData, PolarityItem } from '../../model/Models';
 export struct PolarityCompare {
   @Prop data: PolarityData = { pos: [], neg: [] };
 
-  private fontSize(score: number): number {
-    return Math.round(12 + score * 8);
+  private maxWeight(): number {
+    let m = 0;
+    for (const it of this.data.pos) {
+      if (it.weight > m) {
+        m = it.weight;
+      }
+    }
+    for (const it of this.data.neg) {
+      if (it.weight > m) {
+        m = it.weight;
+      }
+    }
+    return m;
+  }
+
+  private fontSize(weight: number): number {
+    const max = this.maxWeight();
+    const ratio = max === 0 ? 0 : weight / max;
+    return Math.round(12 + ratio * 8);
   }
 
   build() {
@@ -20,7 +37,7 @@ export struct PolarityCompare {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.data.pos, (it: PolarityItem) => {
             Text(it.word)
-              .fontSize(this.fontSize(it.score))
+              .fontSize(this.fontSize(it.weight))
               .fontColor('#2E7D32')
               .margin({ right: 10, top: 8 });
           }, (it: PolarityItem) => it.word);
@@ -40,7 +57,7 @@ export struct PolarityCompare {
         Flex({ wrap: FlexWrap.Wrap }) {
           ForEach(this.data.neg, (it: PolarityItem) => {
             Text(it.word)
-              .fontSize(this.fontSize(it.score))
+              .fontSize(this.fontSize(it.weight))
               .fontColor('#C62828')
               .margin({ right: 10, top: 8 });
           }, (it: PolarityItem) => it.word);
