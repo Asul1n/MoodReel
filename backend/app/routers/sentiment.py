@@ -1,20 +1,41 @@
-"""情感极性分析模块路由：英文 TextCNN(本地) / 中文 百度情感API / 自动路由。
+"""情感极性分析模块路由。
 
-- /analyze/en  英文批量 -> TextCNN（本地模型，需 torch + model.pt）
-- /analyze/zh  中文批量 -> 百度情感倾向分析 API
-- /analyze     （App 主入口）按语言自动路由
+- /analyze/en      英文批量 -> 本地 TextCNN
+- /analyze/zh      中文批量 -> DeepSeek（未配置回退百度）
+- /analyze         自动语言路由（App 主入口）
+- /analyze/backfill 给某上下文的评论批量补情感标签（全流程：爬取→模型→分析）
+- /analyze/compare 同文本多引擎对照
 契约见 schemas.AnalyzeRequest / AnalyzeBatchOut。
 """
+import logging
 import re
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException
 
-from .. import schemas
-from ..services import baidu, textcnn
+logger = logging.getLogger("moodreel")
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from .. import models, schemas
+from ..db import get_db
+from ..services import deepseek, textcnn
 
 router = APIRouter(prefix="/analyze", tags=["sentiment"])
 _CJK = re.compile(r"[一-鿿]")
+
+
+def _context_movie_id(context: str) -> str | None:
+    ctx = (context or "whole").strip()
+    if ctx in ("", "whole"):
+        return None
+    return ctx[len("movie:"):] if ctx.startswith("movie:") else ctx
+
+
+def _detect_lang(texts: list[str], lang: str | None) -> str:
+    if lang in ("en", "zh"):
+        return lang
+    return "zh" if any(_CJK.search(t) for t in texts) else "en"
 
 
 def _en_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
@@ -28,19 +49,14 @@ def _en_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
 
 
 def _zh_batch(texts: list[str]) -> schemas.AnalyzeBatchOut:
-    if not baidu.enabled():
+    """中文 -> DeepSeek（唯一中文通道）。"""
+    if not deepseek.enabled():
         raise HTTPException(status_code=503,
-                            detail="百度情感 API 未启用：请在 backend/.env 配置 BAIDU_* 后重试")
-    results, elapsed_ms, throughput = baidu.analyze_batch(texts)
+                            detail="中文情感通道未启用：请在 backend/.env 配置 DEEPSEEK_API_KEY 并 DEEPSEEK_ENABLED=true")
+    results, elapsed_ms, throughput = deepseek.analyze_batch(texts)
     return schemas.AnalyzeBatchOut(
         results=results, count=len(texts), elapsed_ms=elapsed_ms, throughput=throughput
     )
-
-
-def _detect_lang(texts: list[str], lang: str | None) -> str:
-    if lang in ("en", "zh"):
-        return lang
-    return "zh" if any(_CJK.search(t) for t in texts) else "en"
 
 
 @router.post("/en", response_model=schemas.AnalyzeBatchOut)
@@ -51,7 +67,7 @@ def analyze_en(req: schemas.AnalyzeRequest) -> schemas.AnalyzeBatchOut:
 
 @router.post("/zh", response_model=schemas.AnalyzeBatchOut)
 def analyze_zh(req: schemas.AnalyzeRequest) -> schemas.AnalyzeBatchOut:
-    """中文 -> 百度情感 API（可开关/优雅降级）。"""
+    """中文 -> DeepSeek（未配置回退百度）。"""
     return _zh_batch(req.texts)
 
 
@@ -62,20 +78,64 @@ def analyze_auto(req: schemas.AnalyzeRequest) -> schemas.AnalyzeBatchOut:
     return _zh_batch(req.texts) if lang == "zh" else _en_batch(req.texts)
 
 
+class BackfillReq(BaseModel):
+    context: str = Field(min_length=1, description="whole 或 movie:{movie_id}")
+    lang: str | None = "zh"
+    force: bool = False
+    limit: int = Field(300, ge=1, le=1000)
+
+
+@router.post("/backfill", status_code=200)
+def backfill(req: BackfillReq, db: Session = Depends(get_db)) -> dict:
+    """全流程：把某上下文的评论批量交给 DeepSeek 打情感标签并回写。
+
+    默认只给还没有 pred_label 的评论补标；force=true 则全部覆盖。
+    """
+    if not deepseek.enabled():
+        raise HTTPException(status_code=503,
+                            detail="DeepSeek 未启用：请在 backend/.env 配置 DEEPSEEK_API_KEY 并 DEEPSEEK_ENABLED=true")
+    mid = _context_movie_id(req.context)
+    stmt = select(models.Review).order_by(models.Review.id.asc())
+    if mid:
+        stmt = stmt.where(models.Review.movie_id == mid)
+    if req.lang:
+        stmt = stmt.where(models.Review.lang == req.lang)
+    if not req.force:
+        stmt = stmt.where(models.Review.pred_label.is_(None))
+    rows = db.scalars(stmt.limit(req.limit)).all()
+    if not rows:
+        return {"context": req.context, "updated": 0, "model": "deepseek",
+                "message": "没有待补标的评论（force=true 可覆盖已有标签）"}
+    try:
+        labels = deepseek.classify([r.text for r in rows])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    for r, lab in zip(rows, labels):
+        r.pred_label = lab["label"]
+        r.pred_prob = lab["prob"]
+        r.model = "deepseek"
+    db.commit()
+    logger.info("backfill context=%s updated=%s model=deepseek", req.context, len(rows))
+    return {"context": req.context, "updated": len(rows),
+            "model": "deepseek", "lang": req.lang}
+
+
 class CompareReq(BaseModel):
     text: str
 
 
 @router.post("/compare")
 def compare(req: CompareReq) -> dict:
-    """同一文本多引擎对照（当前实现：英文 TextCNN vs 百度；中文仅百度）。"""
+    """同文本多引擎对照（en：TextCNN；zh：DeepSeek/百度）。"""
     lang = _detect_lang([req.text], None)
     out: dict = {"text": req.text, "lang": lang}
     if lang == "en" and textcnn.is_ready():
         (item,) = textcnn.analyze_batch([req.text])[0][:1]
         out["textcnn"] = item
-    if baidu.enabled():
-        out["baidu"] = baidu.analyze(req.text)
-    if not out.get("textcnn") and not out.get("baidu"):
-        raise HTTPException(status_code=503, detail="暂无可用的情感引擎：请确认模型/百度配置")
+    if lang == "zh" and deepseek.enabled():
+        (item,) = deepseek.analyze_batch([req.text])[0][:1]
+        out["deepseek"] = item
+    if len(out) < 3:
+        raise HTTPException(status_code=503,
+                            detail="暂无可用的情感引擎：英文需本地模型，中文需配置 DeepSeek")
     return out

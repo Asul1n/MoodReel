@@ -1,7 +1,7 @@
 """ORM 模型 —— movies / reviews / crawl_jobs 三表（对应设计规格 §4）。"""
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -17,6 +17,13 @@ class Movie(Base):
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     source: Mapped[str] = mapped_column(String(16))          # imdb / douban
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # —— 影片元数据（豆瓣详情接口抓取，供前端做影片简介页）——
+    intro: Mapped[str | None] = mapped_column(Text, nullable=True)            # 剧情简介
+    poster: Mapped[str | None] = mapped_column(String(500), nullable=True)    # 海报 URL
+    rating: Mapped[float | None] = mapped_column(Float, nullable=True)        # 豆瓣评分 0-10
+    genres: Mapped[str | None] = mapped_column(String(200), nullable=True)    # 类型："剧情 / 犯罪"
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -31,6 +38,7 @@ class Review(Base):
     lang: Mapped[str] = mapped_column(String(8), default="en")   # en / zh
     text: Mapped[str] = mapped_column(Text)
     stars: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 豆瓣 1-5
+    review_time: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)  # 评论原始发表时间 YYYY-MM-DD（趋势图用）
     ground_truth: Mapped[str | None] = mapped_column(String(16), nullable=True)  # IMDB 正/负标签
     pred_label: Mapped[str | None] = mapped_column(String(16), nullable=True)    # positive / negative
     pred_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -49,6 +57,7 @@ class CrawlJob(Base):
     movie_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending/running/done/failed/degraded
     fetched: Mapped[int] = mapped_column(Integer, default=0)
-    limit: Mapped[int] = mapped_column(Integer, default=60)
+    limit: Mapped[int] = mapped_column(Integer, default=200)
+    refresh: Mapped[bool] = mapped_column(Boolean, default=False)  # true=强制重抓；false=已有评论则复用
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

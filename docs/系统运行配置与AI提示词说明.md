@@ -14,7 +14,7 @@
 | Python | 3.10+ |
 | DevEco Studio | 5.0 及以上，可用的 HarmonyOS NEXT SDK（API ≥ 10） |
 | 模型训练 | 建议 8GB+ 内存；CPU 即可（torch CPU 版），有 NVIDIA GPU 可选 |
-| 网络 | 后端机需外网（调用腾讯情感 API、抓取影评）；App 与后端同一局域网 |
+| 网络 | 后端机需外网（调用 DeepSeek、抓取豆瓣/IMDB）；App 与后端同一局域网 |
 
 ## 二、代码获取与分支
 
@@ -52,27 +52,37 @@ cp .env.example .env
 |---|---|
 | MOODREEL_DB | SQLite 路径（默认 `./data/moodreel.db`） |
 | MOODREEL_MODEL_DIR | 模型目录（默认 `./models`） |
-| TENCENT_APPID / TENCENT_SECRET_KEY | 腾讯情感分析 API 凭证（成员B开通后填写） |
-| TENCENT_ENABLED | `true` 开启腾讯中文通道；未配置时中文接口优雅降级 |
+| DEEPSEEK_API_KEY / DEEPSEEK_ENABLED | **中文情感唯一通道**（DeepSeek，二类+置信度）。`platform.deepseek.com` 申请 Key |
+| DOUBAN_COOKIES | 豆瓣登录 **Cookie 完整头**（`bid=…; dbcl2=…; …`），一行一个 |
+| DOUBAN_COOKIES_2 / _3 / _4 / _5 | 第 2~5 个豆瓣账号 Cookie（多账号轮换，提高单片抓取量） |
+| DOUBAN_PROXIES | 代理池，每行一个 `http://user:pass@ip:port`（可选） |
+| DOUBAN_WORKERS | 抓取并发数（默认 `1`，低调；改大前评估被封风险） |
 | HOST / PORT | 监听地址，联调用 `0.0.0.0:8000` |
 
-### 3.2 数据准备与模型
+> 情感口径为**统一二类 positive/negative + 置信度**（无 neutral 档）；中文/英文一致。
+
+### 3.2 模型与语料
 
 ```bash
-python scripts/download_imdb.py           # IMDB 50k CSV 需从 Kaggle 手动下载后放入 data/
-python scripts/seed_db.py --sample 5000   # 建库灌库（联调用抽样；全量去掉 --sample）
-python scripts/train_textcnn.py           # 训练 + 评测(≥85%)，导出 models/vocab.json + textcnn.npz
+# 本地英文 TextCNN：把成员B训练的 model.pt 放到 backend/models/（不入 git）
+cp <交付包>/textcnn_sentiment/model.pt backend/models/model.pt
+
+# IMDB 50k 静态语料（可选，做英文整库分析）
+# 方式1：Kaggle CSV(review,sentiment) 放 data/IMDB_Dataset.csv 后：
+python scripts/download_imdb.py && python scripts/seed_db.py
+# 方式2：成员B 的 aclImdb 目录：
+python scripts/seed_acl_imdb.py --root /path/to/aclImdb
 ```
 
-> 模型产物 `.npz` 不入 git：成员B训练后把 `models/` 下的两个文件发给队友放到同目录即可，无需各自训练。
+> 词云使用 `wordcloud` 库渲染（`requirements.txt` 已含；装：`pip install -r requirements.txt`）。
 
 ### 3.3 启动与自检
 
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 curl http://127.0.0.1:8000/health
-# 期望：{"ok": true, "model_ready": true|false, "version": "0.1.0"}
-# model_ready=true 表示 TextCNN 已加载
+# 期望：{"ok": true, "model_ready": true, "model": {"ready": true, "msg": ""}, "version": "0.1.0"}
+# model_ready=true 表示本地 TextCNN 已加载（需 torch + models/model.pt）
 ```
 
 常用接口冒烟：`GET /dataset/stats`、`POST /analyze/en`（示例 body `{"texts":["A great movie!"]}`）。
@@ -80,7 +90,7 @@ curl http://127.0.0.1:8000/health
 ### 3.4 测试
 
 ```bash
-cd backend && pytest -q        # 期望 2 个用例通过
+cd backend && pytest -q        # 期望 26 个用例通过
 ```
 
 ## 四、App（HarmonyOS）运行配置
@@ -102,8 +112,10 @@ cd backend && pytest -q        # 期望 2 个用例通过
 |---|---|
 | `curl /health` 不通 | 后端是否启动、HOST 是否为 0.0.0.0、端口占用 |
 | App 提示后端不通 | 设置页换地址/点测试连接；检查同一网络与防火墙放行 8000 |
-| `/analyze/zh` 返回 503 | `.env` 未配腾讯密钥或 `TENCENT_ENABLED=false` |
-| `/analyze/en` 返回 503 | 模型未训练/未放入 `models/`（`model_ready=false`） |
+| `/analyze/zh`、`/backfill` 返回 503 | `.env` 未配 `DEEPSEEK_API_KEY` 或 `DEEPSEEK_ENABLED` 非 true |
+| `/analyze/en` 返回 503 | 缺 torch 或 `models/model.pt`（`model_ready=false`，看 `model.msg`） |
+| 单片只能抓 ~100 | `.env` 配豆瓣完整 Cookie（`DOUBAN_COOKIES` 等）→ 自动 HTML 深翻到窗口尽头（实测单片可达 ~400） |
+| 词云图打不开 | 是否已重启到含 wordcloud 库的版本；URL 拼对 BASE_URL；INTERNET+明文权限 |
 | `pytest` 报连接/表错误 | 数据库文件损坏时删除 `data/*.db` 重新 `seed_db.py` |
 
 ## 六、AI 提示词说明（记录本小组使用 AI 辅助开发的情况）

@@ -26,6 +26,8 @@ backend/data/*
 backend/models/*.npz
 backend/models/*.pt
 backend/dumps/
+backend/logs/
+backend/static/
 backend/tests/fixtures/douban_interests.json
 *.log
 

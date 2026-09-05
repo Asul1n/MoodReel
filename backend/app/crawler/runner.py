@@ -1,16 +1,19 @@
 """采集任务执行器（成员A）。
 
-最小闭环：任务在后台线程执行。当前在线爬虫（IMDB/豆瓣）尚未实现时，
-自动降级到 sample_pack 离线样本：status=degraded、error 注明来源。
-成员A接入真实爬虫后，本模块会自动"先在线、失败/未实现才离线兜底"。
+流程：后台线程执行 crawl job —— 先尝试在线抓取（IMDB/豆瓣），失败/未实现再走
+sample_pack 离线样本兜底（status=degraded）。在线抓取成功后，会顺带抓取影片
+元数据（简介/海报/评分/类型）写入 movies 表，供前端展示简介。
 
 入库命名：
     在线抓取   -> reviews.source = imdb_live / douban_live
     离线样本   -> reviews.source = imdb_sample / douban_sample
 """
+import logging
 import threading
 
-from .. import models
+import requests
+
+from .. import config, models
 from ..db import SessionLocal
 from . import samples
 from .base import MovieRef
@@ -20,6 +23,9 @@ from .imdb import ImdbCrawler
 CRAWLERS = {"imdb": ImdbCrawler(), "douban": DoubanCrawler()}
 # 离线样本来源 => reviews.source
 SAMPLE_SOURCE = {"imdb": "imdb_sample", "douban": "douban_sample"}
+
+logger = logging.getLogger("moodreel")
+_META_FIELDS = ("title", "year", "intro", "poster", "rating", "genres")
 
 
 def start(job_id: str) -> None:
@@ -39,6 +45,8 @@ def _run(job_id: str) -> None:
         except Exception as exc:  # 无论什么异常，任务都不卡死
             db.rollback()
             _set(db, job, status="failed", error=f"采集异常：{exc}")
+        logger.info("crawl job=%s source=%s query=%s status=%s fetched=%s",
+                    job.job_id, job.source, job.query, job.status, job.fetched)
 
 
 def _try_online(db, job) -> bool:
@@ -46,21 +54,114 @@ def _try_online(db, job) -> bool:
     crawler = CRAWLERS.get(job.source)
     if crawler is None:
         return False
+    # 并发去重：同一 source+query 已有任务在跑 -> 本任务直接复用跳过
+    dup = db.query(models.CrawlJob).filter(
+        models.CrawlJob.source == job.source,
+        models.CrawlJob.query == job.query,
+        models.CrawlJob.status.in_(("pending", "running")),
+        models.CrawlJob.job_id != job.job_id,
+    ).first()
+    if dup is not None:
+        _set(db, job, status="done", fetched=0,
+             error=f"同一抓取任务已在执行({dup.job_id[:8]}…)，已跳过本次")
+        logger.info("影片/查询已在抓取中(%s…)，本任务跳过", dup.job_id)
+        return True
     try:
         refs = crawler.search(job.query)
         if not refs:
+            logger.info("搜索无结果 query=%s source=%s（转离线样本）", job.query, job.source)
             return False
         movie = refs[0]
+        logger.info("解析到影片 %s《%s》%s",
+                    movie.movie_id, movie.title, f"({movie.year})" if movie.year else "")
+        # 幂等/缓存：refresh=false 且该片已有在线评论 -> 复用跳过重抓
+        if not getattr(job, "refresh", False):
+            live_src = f"{movie.source}_live"
+            existing = db.query(models.Review).filter(
+                models.Review.movie_id == movie.movie_id,
+                models.Review.source == live_src).count()
+            if existing:
+                _set(db, job, status="done", fetched=existing,
+                     error=f"该片已有 {existing} 条评论，已复用跳过抓取（refresh=true 可强制重抓）")
+                logger.info("影片 %s 已有 %s 条评论，跳过抓取（refresh=true 可强制重抓）",
+                            movie.movie_id, existing)
+                return True
+        logger.info("开始在线抓取影片 %s，limit=%s", movie.movie_id, job.limit)
         items = crawler.fetch(movie, job.limit)
         if not items:
+            logger.warning("影片 %s 抓到 0 条（转离线样本）", movie.movie_id)
             return False
     except NotImplementedError:
         return False  # 在线爬虫尚未实现
     except Exception:
         return False  # 网络/解析失败 → 兜底
     _store(db, job, movie, f"{movie.source}_live", items)
+    _apply_meta(db, crawler, movie)   # 顺带抓影片简介等（best-effort）
     _set(db, job, status="done", fetched=len(items))
     return True
+
+
+def _localize_poster(movie: MovieRef, url: str) -> str | None:
+    """把豆瓣海报下载到本地 static/posters/，返回本地路径；失败返回 None。
+
+    目的：绕开豆瓣图床防盗/Referer 校验，让前端始终只连我们后端。
+    海报已存在本地则直接复用，不重复下载。
+    """
+    try:
+        d = config.STATIC_DIR / "posters"
+        fn = movie.movie_id.replace(":", "_") + ".jpg"
+        full = d / fn
+        if full.exists():
+            return f"/static/posters/{fn}"   # 已缓存
+        r = requests.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Referer": "https://movie.douban.com/",
+        }, timeout=20)
+        if r.status_code != 200 or not r.content:
+            return None
+        d.mkdir(parents=True, exist_ok=True)
+        full.write_bytes(r.content)
+        return f"/static/posters/{fn}"
+    except Exception:
+        return None
+
+
+def _apply_meta(db, crawler, movie: MovieRef) -> None:
+    """把豆瓣详情接口的影片元数据写进 movies（失败静默，不强依赖）。"""
+    fetch_meta = getattr(crawler, "movie_meta", None)
+    if fetch_meta is None:
+        return
+    try:
+        meta = fetch_meta(movie) or {}
+    except Exception:
+        return
+    if not meta:
+        return
+    m = db.get(models.Movie, movie.movie_id)
+    if m is None:
+        return
+    for field in _META_FIELDS:
+        if meta.get(field) is not None:
+            setattr(m, field, meta[field])
+    intro = meta.get("intro") or ""
+    logger.info("抓取到影片元数据 %s《%s》: 类型=%s 评分=%s",
+                movie.movie_id, meta.get("title") or movie.title,
+                meta.get("genres"), meta.get("rating"))
+    if intro:
+        logger.info("影片简介 %s: %s", movie.movie_id,
+                    intro[:80] + "…" if len(intro) > 80 else intro)
+    # 海报：优先下载到本地伺服，规避豆瓣防盗；失败则保留原外链
+    poster = meta.get("poster")
+    if poster and str(poster).startswith("http"):
+        logger.info("开始下载海报 %s <- %s", movie.movie_id, str(poster)[:80])
+        local = _localize_poster(movie, str(poster))
+        if local:
+            m.poster = local
+            logger.info("海报已保存到本地 %s", local)
+        else:
+            logger.warning("海报本地下载失败，保留豆瓣外链 %s", movie.movie_id)
+    db.commit()
 
 
 def _fallback_offline(db, job) -> None:
@@ -100,7 +201,8 @@ def _store(db, job, movie: MovieRef, source_label: str, items: list) -> None:
     lang = "zh" if movie.source == "douban" else "en"
     db.add_all([
         models.Review(movie_id=movie.movie_id, source=source_label, lang=lang,
-                      text=item.text.strip(), stars=item.stars)
+                      text=item.text.strip(), stars=item.stars,
+                      review_time=getattr(item, "time", None))
         for item in items if item.text.strip()
     ])
     db.commit()

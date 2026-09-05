@@ -55,9 +55,8 @@ def _label_expr():
         (models.Review.ground_truth.isnot(None), models.Review.ground_truth),
         (models.Review.lang == "zh", case(
             (models.Review.stars >= 4, "positive"),
-            (models.Review.stars == 3, "neutral"),
-            (models.Review.stars.isnot(None), "negative"),
-            else_=None)),
+            (models.Review.stars <= 2, "negative"),
+            else_=None)),   # 3 星(中性)不派极性 -> 归 unlabeled
         else_=None,
     ).label("label")
 
@@ -78,15 +77,16 @@ def stats(db, context: str | None = "whole") -> dict:
             .group_by(models.Review.source)
         ).all()
     )
-    dist = {k: counts.get(k, 0) for k in ("positive", "negative", "neutral")}
+    # 统一二类口径：positive / negative；中性或未标注一律归 unlabeled
+    pos = counts.get("positive", 0)
+    neg = counts.get("negative", 0)
     total = sum(counts.values())
-    unlabeled = counts.get(None, 0)
     return {
         "context": context or "whole",
         "total": total,
-        "labeled": total - unlabeled,
-        "unlabeled": unlabeled,
-        "dist": dist,
+        "labeled": pos + neg,
+        "unlabeled": total - pos - neg,
+        "dist": {"positive": pos, "negative": neg},
         "by_source": by_source,
     }
 
@@ -94,10 +94,13 @@ def stats(db, context: str | None = "whole") -> dict:
 def trend(db, context: str | None = "whole", limit_days: int | None = None) -> list[dict]:
     conds = _scope(db, context)
     label = _label_expr()
-    day = func.date(models.Review.created_at)
+    # 按月统计（YYYY-MM，横轴"年份-月"）；时间优先取评论原始发表时间，否则回退入库时间
+    month = func.strftime("%Y-%m",
+                          func.coalesce(models.Review.review_time,
+                                        models.Review.created_at))
     rows = db.execute(
-        select(day, label, func.count())
-        .where(*conds).group_by(day, label)
+        select(month, label, func.count())
+        .where(*conds).group_by(month, label)
     ).all()
     by_day: dict[str, dict] = {}
     for day, lab, cnt in rows:
@@ -206,6 +209,11 @@ def hotspot(db, context: str | None = "whole", top_n: int = 30) -> dict:
 def summary(db, context: str | None = "whole", top_n: int = 30) -> dict:
     st = stats(db, context)
     hs = hotspot(db, context, top_n=top_n)
+    conf = db.scalar(
+        select(func.avg(models.Review.pred_prob)).where(
+            *_scope(db, context), models.Review.pred_prob.isnot(None)
+        )
+    )
     return {
         "context": context or "whole",
         "movie": movie_info(db, context),
@@ -214,6 +222,7 @@ def summary(db, context: str | None = "whole", top_n: int = 30) -> dict:
         "labeled": st["labeled"],
         "unlabeled": st["unlabeled"],
         "by_source": st["by_source"],
+        "avg_confidence": round(float(conf), 3) if conf is not None else None,
         "trend": trend(db, context),
         "top_words": hs["keywords"][:10],
         "cloud": hs["cloud"],

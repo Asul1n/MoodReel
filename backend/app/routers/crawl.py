@@ -1,9 +1,10 @@
-"""采集模块路由：发起双源抓取 job + 轮询进度。"""
+"""采集模块路由：发起双源抓取 job + 轮询进度 + 影片列表/详情。"""
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -12,36 +13,63 @@ from ..db import get_db
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
 
+_META_KEYS = ("intro", "poster", "rating", "genres")
+
 
 class CrawlStart(BaseModel):
     source: str = Field(pattern="^(imdb|douban)$")
     query: str = Field(min_length=1, max_length=200, description="片名或 movie_id")
-    limit: int = Field(60, ge=1, le=100)
+    limit: int = Field(200, ge=1, le=1000, description="抓取条数上限(默认200)")
+    refresh: bool = Field(False, description="true=强制重抓；false=该片已有评论则复用跳过抓取")
 
 
-# 注意：静态路由 /movies 必须声明在动态路由 /{job_id} 之前，避免被抢占匹配。
+# 注意：静态路由 /movies、/movie/{id} 必须声明在动态路由 /{job_id} 之前，避免被抢占匹配。
 
 
 @router.get("/movies", response_model=list[dict])
 def movies(db: Session = Depends(get_db)) -> list[dict]:
-    """候选影片：已入库（crawl）+ 离线样本包（offline，断网也能演示）。"""
+    """候选影片：已入库（crawl，含简介/海报/评分）+ 离线样本包（offline）。"""
     out: list[dict] = []
     seen: set[str] = set()
     for m in db.query(models.Movie).order_by(models.Movie.created_at.desc()).limit(200).all():
         seen.add(m.movie_id)
-        out.append({
+        item = {
             "movie_id": m.movie_id, "title": m.title, "year": m.year,
             "source": m.source, "source_url": m.source_url, "available": "crawl",
-        })
+        }
+        for k in _META_KEYS:
+            item[k] = getattr(m, k, None)
+        out.append(item)
     for sm in samples.list_sample_movies():
         if sm.movie_id in seen:
             continue
-        out.append({
+        item = {
             "movie_id": sm.movie_id, "title": sm.title, "year": sm.year,
             "source": sm.source, "source_url": None, "available": "offline",
             "note": sm.note,
-        })
+        }
+        for k in _META_KEYS:
+            item[k] = None
+        out.append(item)
     return out
+
+
+@router.get("/movie/{movie_id}")
+def movie_detail(movie_id: str, db: Session = Depends(get_db)) -> dict:
+    """单部影片详情（简介/海报/评分/类型 + 已抓评论数），供前端简介页。"""
+    m = db.get(models.Movie, movie_id)
+    if not m:
+        raise HTTPException(status_code=404, detail=f"影片不存在：{movie_id}")
+    review_count = db.scalar(
+        select(func.count(models.Review.id)).where(models.Review.movie_id == movie_id)
+    ) or 0
+    item = {
+        "movie_id": m.movie_id, "title": m.title, "year": m.year,
+        "source": m.source, "source_url": m.source_url, "review_count": review_count,
+    }
+    for k in _META_KEYS:
+        item[k] = getattr(m, k, None)
+    return item
 
 
 @router.post("", status_code=201)
@@ -52,6 +80,7 @@ def start_crawl(payload: CrawlStart, db: Session = Depends(get_db)) -> dict:
         source=payload.source,
         query=payload.query,
         limit=payload.limit,
+        refresh=payload.refresh,
         status="pending",
         created_at=datetime.utcnow(),
     )

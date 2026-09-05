@@ -6,11 +6,15 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import config
 from .db import init_db
+from .logging_config import logger, setup_logging
 from .routers import crawl, dataset, hotspot, sentiment, viz
 from .services import textcnn
+
+setup_logging()
 
 VERSION = "0.1.0"
 
@@ -19,6 +23,9 @@ VERSION = "0.1.0"
 async def lifespan(_: FastAPI):
     init_db()
     textcnn.load()  # 惰性：缺 torch/模型时不报错，仅 model_ready=False
+    logger.info("后端启动完成 model_ready=%s", textcnn.is_ready())
+    if not textcnn.is_ready():
+        logger.warning("TextCNN 未就绪：%s", textcnn.status()["msg"])
     yield
 
 
@@ -48,3 +55,7 @@ app.include_router(crawl.router)
 app.include_router(sentiment.router)
 app.include_router(hotspot.router)
 app.include_router(viz.router)
+
+# 本地静态资源（下载到本地的海报等）
+config.STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(config.STATIC_DIR)), name="static")

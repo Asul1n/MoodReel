@@ -44,10 +44,10 @@ def test_stats_distribution_movie():
     _seed_douban_sample()
     with SessionLocal() as db:
         st = analytics.stats(db, MOVIE_CTX)
-    assert st["dist"]["positive"] == 4   # 星级 5,5,4,4
-    assert st["dist"]["negative"] == 3   # 星级 2,1,2
-    assert st["dist"]["neutral"] == 1    # 星级 3
+    assert st["dist"] == {"positive": 4, "negative": 3}   # 5,5,4,4 / 2,1,2
     assert st["total"] == 8
+    assert st["labeled"] == 7            # 3 星归 unlabeled（二类口径）
+    assert st["unlabeled"] == 1
 
 
 def test_hotspot_polarity_and_cloud():
@@ -65,7 +65,7 @@ def test_summary_shape():
     with SessionLocal() as db:
         s = analytics.summary(db, MOVIE_CTX, top_n=10)
     assert s["movie"]["movie_id"] == "douban:1292052"
-    assert set(s["dist"]) == {"positive", "negative", "neutral"}
+    assert set(s["dist"]) == {"positive", "negative"}
     assert s["total"] == 8
     assert isinstance(s["trend"], list)
     assert isinstance(s["top_words"], list)
