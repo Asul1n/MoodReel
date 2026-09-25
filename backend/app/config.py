@@ -69,3 +69,7 @@ ANIME_LOW_CONF_WEIGHT = float(os.getenv("ANIME_LOW_CONF_WEIGHT", "0.5"))  # 降�
 # 动漫域中文情感模型（scripts/train_textcnn_anime.py 产物）
 ANIME_MODEL_PATH = _abs(os.getenv(
     "ANIME_MODEL_PATH", str(BASE_DIR / "models" / "anime" / "model_anime.pt")))
+
+# —— 动漫站点凭证（放 .env，不入库；等同账号凭证，切勿提交）——
+# B站：整串 Cookie 头，至少含 SESSDATA。用于短评接口，并可能提升搜索接口的风控信任度。
+BILIBILI_COOKIE = os.getenv("BILIBILI_COOKIE", "").strip()

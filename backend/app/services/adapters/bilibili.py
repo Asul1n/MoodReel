@@ -14,6 +14,7 @@ import re
 
 import requests
 
+from ... import config
 from . import register
 from .base import (AnimeReview, Candidate, Meta, Rating, SourceResult,
                    degraded, failed, ok)
@@ -32,9 +33,11 @@ _TAG = re.compile(r"<[^>]+>")
 class BilibiliAdapter:
     source = "bilibili"
 
-    def __init__(self, timeout: int = 15, cookie: str = "") -> None:
+    def __init__(self, timeout: int = 15, cookie: str | None = None) -> None:
         self.timeout = timeout
-        self.cookie = cookie
+        # cookie 未显式传入时读配置（.env 的 BILIBILI_COOKIE），
+        # 便于 get_adapter() 这样无参构造的调用方也能拿到凭证
+        self.cookie = config.BILIBILI_COOKIE if cookie is None else cookie
 
     # —— 网络层：返回 (status_code, text)，异常不外抛 ——
     def _http_get(self, url: str, params: dict | None = None) -> tuple[int, str]:

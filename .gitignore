@@ -23,8 +23,10 @@ venv/
 *.sqlite3
 backend/data/*
 !backend/data/.gitkeep
-backend/models/*.npz
-backend/models/*.pt
+# 模型权重：用 ** 覆盖子目录（models/zh/、models/anime/ 等），
+# 单层 * 只匹配直接子文件，子目录里的权重会漏网被提交
+backend/models/**/*.npz
+backend/models/**/*.pt
 backend/dumps/
 backend/logs/
 backend/static/

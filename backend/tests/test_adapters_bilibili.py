@@ -113,3 +113,30 @@ def test_empty_query_returns_ok_empty() -> None:
     r = a.search("   ")
     assert r.status == "ok"
     assert r.data == []
+
+
+def test_cookie_read_from_config(monkeypatch) -> None:
+    """未显式传 cookie 时从配置读——get_adapter() 是无参构造。"""
+    from app.services.adapters import bilibili as mod
+
+    monkeypatch.setattr(mod.config, "BILIBILI_COOKIE", "SESSDATA=abc; bili_jct=def")
+    assert BilibiliAdapter().cookie == "SESSDATA=abc; bili_jct=def"
+
+
+def test_explicit_cookie_overrides_config(monkeypatch) -> None:
+    from app.services.adapters import bilibili as mod
+
+    monkeypatch.setattr(mod.config, "BILIBILI_COOKIE", "SESSDATA=from_config")
+    assert BilibiliAdapter(cookie="SESSDATA=explicit").cookie == "SESSDATA=explicit"
+
+
+def test_reviews_use_cookie_when_present(monkeypatch) -> None:
+    """配了 cookie 后短评通道应尝试真实抓取，而非直接降级。"""
+    from app.services.adapters import bilibili as mod
+
+    monkeypatch.setattr(mod.config, "BILIBILI_COOKIE", "SESSDATA=abc")
+    a = BilibiliAdapter()
+    assert a.cookie == "SESSDATA=abc"
+    r = a.fetch_reviews("33378", limit=10)
+    # v1 短评解析未接入，仍为 degraded，但原因不再是"未配置 cookie"
+    assert "cookie" not in r.error
