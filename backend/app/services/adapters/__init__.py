@@ -27,6 +27,6 @@ def available_sources() -> list[str]:
     return sorted(_REGISTRY)
 
 
-# 各站点适配器在实现后于此处 import 触发注册（Task 3 / Task 4）
-# from . import bangumi as _bangumi    # noqa: E402,F401
-# from . import bilibili as _bilibili  # noqa: E402,F401
+# 各站点适配器在实现后于此处 import 触发注册
+from . import bilibili as _bilibili  # noqa: E402,F401
+# from . import bangumi as _bangumi  # noqa: E402,F401  # Task 3，待网络可通

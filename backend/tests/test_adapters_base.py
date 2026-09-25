@@ -39,3 +39,27 @@ def test_empty_ok_is_distinct_from_failure() -> None:
     fail = failed("bangumi", reason="连接超时", http_status=None)
     assert empty.ok is True and empty.status == "ok"
     assert fail.ok is False
+
+
+# --------------------------------------------------------------------------- #
+# 注册表：适配器必须能被 get_adapter 取到
+# --------------------------------------------------------------------------- #
+
+def test_registry_exposes_implemented_adapters() -> None:
+    """已实现的站点必须出现在注册表里。
+
+    回归防护：曾出现适配器漏加 @register 的情况——直接 import 类的测试
+    全绿，但 get_adapter() 返回 None，整条链路拿不到适配器。
+    """
+    from app.services.adapters import available_sources, get_adapter
+
+    assert "bilibili" in available_sources()
+    adapter = get_adapter("bilibili")
+    assert adapter is not None
+    assert adapter.source == "bilibili"
+
+
+def test_registry_returns_none_for_unimplemented() -> None:
+    """未实现的站点返回 None，调用方据此如实上报，而非静默降级。"""
+    from app.services.adapters import get_adapter
+    assert get_adapter("mal") is None
