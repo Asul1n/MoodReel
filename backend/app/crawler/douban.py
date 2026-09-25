@@ -200,7 +200,14 @@ class DoubanCrawler(CrawlSource):
             return item
 
     def _get(self, url: str, headers: dict, retries: int = 3) -> str | None:
-        """带身份/代理轮换的 GET；403/429/异常做指数退避并换身份。"""
+        """带身份/代理轮换的 GET；403/429/异常做指数退避并换身份。
+
+        失败必须留下日志：状态码是区分"被限流"与"确实无数据"的唯一线索。
+        返回 None 同时可能表示"请求失败"与"无数据"，因此调用方在记
+        "搜索无结果"前应先看这里的告警。
+        """
+        last_code: int | None = None
+        last_err: str | None = None
         for attempt in range(retries):
             ident = self._pick()
             req_headers = dict(headers)
@@ -214,12 +221,24 @@ class DoubanCrawler(CrawlSource):
                 r = ident["session"].get(url, headers=req_headers, **kwargs)
                 if r.status_code == 200:
                     return r.text
+                last_code = r.status_code
                 if r.status_code in (403, 429):
+                    logger.warning(
+                        "豆瓣请求被限流 url=%s status=%s 第 %d/%d 次尝试，退避后换身份重试",
+                        url, r.status_code, attempt + 1, retries)
                     time.sleep(2 * (attempt + 1) + random.random() * 2)
                     continue
+                logger.warning("豆瓣请求返回非 200 url=%s status=%s",
+                               url, r.status_code)
                 return None
-            except requests.RequestException:
+            except requests.RequestException as exc:
+                last_err = str(exc)
+                logger.warning("豆瓣请求异常 url=%s err=%s 第 %d/%d 次尝试",
+                               url, exc, attempt + 1, retries)
                 time.sleep(2 * (attempt + 1))
+
+        logger.error("豆瓣请求最终失败 url=%s 最后状态码=%s 最后异常=%s",
+                     url, last_code, last_err)
         return None
 
     def search(self, query: str) -> list[MovieRef]:
