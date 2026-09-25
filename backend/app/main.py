@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config
 from .db import init_db
 from .logging_config import logger, setup_logging
-from .routers import crawl, dataset, hotspot, sentiment, viz
+from .routers import anime, crawl, dataset, hotspot, sentiment, viz
 from .services import textcnn, textcnn_zh
 
 setup_logging()
@@ -52,6 +52,7 @@ def health() -> dict:
 
 
 app.include_router(dataset.router)
+app.include_router(anime.router)
 app.include_router(crawl.router)
 app.include_router(sentiment.router)
 app.include_router(hotspot.router)
