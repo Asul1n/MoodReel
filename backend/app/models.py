@@ -1,7 +1,12 @@
-"""ORM 模型 —— movies / reviews / crawl_jobs 三表（对应设计规格 §4）。"""
+"""ORM 模型 —— 电影域 movies / reviews / crawl_jobs（原系统）+ 动漫域 anime / anime_source / divergence。
+
+动漫域对应 `2026-09-17-anime-cross-site-divergence-design.md` §5。
+Review 同时服务两域：movie_id 为空即电影整库样本，anime_id 为空即非动漫域。
+"""
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (Boolean, DateTime, Float, ForeignKey, Integer, String,
+                        Text, UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -34,6 +39,7 @@ class Review(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     movie_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # 空 = IMDB 整库样本
+    anime_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # 动漫域；空 = 电影
     source: Mapped[str] = mapped_column(String(16), index=True)  # imdb_static / imdb_live / douban_live / manual
     lang: Mapped[str] = mapped_column(String(8), default="en")   # en / zh
     text: Mapped[str] = mapped_column(Text)
@@ -61,3 +67,73 @@ class CrawlJob(Base):
     refresh: Mapped[bool] = mapped_column(Boolean, default=False)  # true=强制重抓；false=已有评论则复用
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ======================= 动漫域（跨站口碑分歧分析） =======================
+
+
+class Anime(Base):
+    """番剧主表。anime_id 形如 bangumi:253 —— 取归并时的锚点站点 ID（规格 §5.1）。"""
+
+    __tablename__ = "anime"
+
+    anime_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title_cn: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    title_jp: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    title_en: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    season: Mapped[str | None] = mapped_column(String(16), nullable=True)       # 如 2024春
+    episodes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    studio: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    synopsis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    poster_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AnimeSource(Base):
+    """跨站映射与各站原始数据（规格 §5.1）。"""
+
+    __tablename__ = "anime_source"
+    __table_args__ = (
+        UniqueConstraint("source", "source_id", name="uq_anime_source_sid"),
+        UniqueConstraint("anime_id", "source", name="uq_anime_source_anime"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    anime_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("anime.anime_id"), index=True)
+    source: Mapped[str] = mapped_column(String(16), index=True)   # bangumi / bilibili / anilist / mal
+    source_id: Mapped[str] = mapped_column(String(64))
+    url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    rating_raw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rating_scale: Mapped[float | None] = mapped_column(Float, nullable=True)      # 10 或 100
+    rating_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rating_weighted: Mapped[float | None] = mapped_column(Float, nullable=True)   # 收缩后(10分制)
+
+    review_count: Mapped[int] = mapped_column(Integer, default=0)
+    sentiment_pos: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sentiment_neg: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sentiment_mean: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    is_manual: Mapped[bool] = mapped_column(Boolean, default=False)   # 人工校正过的映射
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class Divergence(Base):
+    """分歧结果缓存（规格 §5.1）。"""
+
+    __tablename__ = "divergence"
+
+    anime_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("anime.anime_id"), primary_key=True)
+    d_rating: Mapped[float | None] = mapped_column(Float, nullable=True)
+    d_sentiment: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quadrant: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    sources_rating: Mapped[str | None] = mapped_column(String(128), nullable=True)     # 逗号分隔
+    sources_sentiment: Mapped[str | None] = mapped_column(String(128), nullable=True)  # 逗号分隔
+    degraded: Mapped[bool] = mapped_column(Boolean, default=False)
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)   # 完整结果 JSON
+    computed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

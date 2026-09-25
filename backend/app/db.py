@@ -25,6 +25,7 @@ _COLUMNS_BY_TABLE = {
     },
     "reviews": {
         "review_time": "VARCHAR(32)",
+        "anime_id": "VARCHAR(64)",
     },
     "crawl_jobs": {
         "refresh": "BOOLEAN",
