@@ -56,3 +56,16 @@ DOUBAN_WORKERS = int(os.getenv("DOUBAN_WORKERS", "1"))  # 并发数（默认低�
 # 监听
 HOST = os.getenv("HOST", "0.0.0.0")
 PORT = int(os.getenv("PORT", "8000"))
+
+# —— 动漫跨站分歧（规格 §6.3 / §6.4）——
+# 象限阈值：默认值需用真实数据标定（scripts/calibrate_thresholds.py）
+ANIME_THR_R = float(os.getenv("ANIME_THR_R", "0.5"))     # 评分分歧阈值（10 分制标准差）
+ANIME_THR_S = float(os.getenv("ANIME_THR_S", "0.2"))     # 情感分歧阈值（极性标准差）
+ANIME_BAYES_M = int(os.getenv("ANIME_BAYES_M", "500"))   # 贝叶斯先验权重
+ANIME_MIN_RATING_COUNT = int(os.getenv("ANIME_MIN_RATING_COUNT", "100"))  # 低于此降权
+ANIME_MIN_REVIEWS = int(os.getenv("ANIME_MIN_REVIEWS", "30"))             # 低于此不参与情感
+ANIME_LOW_CONF_WEIGHT = float(os.getenv("ANIME_LOW_CONF_WEIGHT", "0.5"))  # 降权权重
+
+# 动漫域中文情感模型（scripts/train_textcnn_anime.py 产物）
+ANIME_MODEL_PATH = _abs(os.getenv(
+    "ANIME_MODEL_PATH", str(BASE_DIR / "models" / "anime" / "model_anime.pt")))
