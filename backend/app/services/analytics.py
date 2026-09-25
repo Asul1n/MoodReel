@@ -203,6 +203,86 @@ def hotspot(db, context: str | None = "whole", top_n: int = 30) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# 分站独有褒贬词（跨站分歧成因归因，规格 §6.5）
+# --------------------------------------------------------------------------- #
+
+def build_source_terms(docs: dict, top_n: int = 15) -> dict:
+    """各站"独有"的高频褒贬词——直接回答"国内在意什么、国外在意什么"。
+
+    docs: {source: {"pos": [评论文本, ...], "neg": [评论文本, ...]}}
+          褒贬标签沿用全系统唯一口径（见模块 docstring）。
+
+    返回: {source: {"top_pos": [{word, freq, score}], "top_neg": [...]}}
+          站点数 < 2 时返回 {}——只有一个站时无所谓"独有"。
+
+    与 hotspot 的关系：褒贬判定沿用同一套"词在正/负评中的占比差异"，
+    本函数只在其上再加一层"相对其他站的独有性"（别站也常说的词不算独有）。
+    """
+    sources = [s for s, d in docs.items() if d.get("pos") or d.get("neg")]
+    if len(sources) < 2:
+        return {}
+
+    # 各站词频（按"包含该词的评论数"计，与 hotspot 口径一致）
+    pos_df: dict[str, Counter] = {}
+    neg_df: dict[str, Counter] = {}
+    all_df: dict[str, Counter] = {}
+    for src in sources:
+        p, g, a = Counter(), Counter(), Counter()
+        for text in docs[src].get("pos") or []:
+            for w in set(_tokens(_lang_of(text), text)):
+                p[w] += 1
+                a[w] += 1
+        for text in docs[src].get("neg") or []:
+            for w in set(_tokens(_lang_of(text), text)):
+                g[w] += 1
+                a[w] += 1
+        pos_df[src], neg_df[src], all_df[src] = p, g, a
+
+    out: dict[str, dict] = {}
+    for src in sources:
+        others = Counter()
+        for other in sources:
+            if other != src:
+                others.update(all_df[other])
+        n_others = len(sources) - 1
+
+        # 独有度 = 本站文档频率 / (1 + 其他站平均文档频率)
+        scores: dict[str, float] = {}
+        for w, n in all_df[src].items():
+            other_avg = others.get(w, 0) / n_others
+            if other_avg > 0 and n <= other_avg:
+                continue                     # 别站也这么说 → 不算独有
+            scores[w] = n / (1.0 + other_avg)
+
+        def side(kind: str, limit: int) -> list[dict]:
+            rows = []
+            for w, distinct in scores.items():
+                p, g = pos_df[src].get(w, 0), neg_df[src].get(w, 0)
+                tot = p + g
+                if tot < 2:                  # 同 hotspot：至少 2 条评论才采信
+                    continue
+                ratio = p / tot
+                if kind == "pos" and ratio >= 0.66:
+                    rows.append((w, distinct, tot))
+                elif kind == "neg" and ratio <= 0.34:
+                    rows.append((w, distinct, tot))
+            rows.sort(key=lambda x: (x[1], x[2]), reverse=True)
+            return [{"word": w, "freq": tot, "score": round(s, 3)}
+                    for w, s, tot in rows[:limit]]
+
+        out[src] = {"top_pos": side("pos", top_n), "top_neg": side("neg", top_n)}
+    return out
+
+
+def _lang_of(text: str) -> str:
+    """按中文字符占比判断语料语言，供分词选择停用词表。"""
+    if not text:
+        return "en"
+    zh = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return "zh" if zh * 2 >= len(text) else "en"
+
+
+# --------------------------------------------------------------------------- #
 # 可视化聚合（App 图表一次拿全）
 # --------------------------------------------------------------------------- #
 
