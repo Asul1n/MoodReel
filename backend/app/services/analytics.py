@@ -282,6 +282,28 @@ def _lang_of(text: str) -> str:
     return "zh" if zh * 2 >= len(text) else "en"
 
 
+def source_terms_from_db(db, anime_id: str, source_tags: dict,
+                         per_source_limit: int = 200, top_n: int = 15) -> dict:
+    """按站取已入库评论，产出分站独有褒贬词。
+
+    标签沿用全系统唯一口径（_label_expr：pred_label → ground_truth → 星级映射），
+    因此无论评论是经情感分析打过标、还是带原始星级，都能参与归因。
+
+    读取与打标的逻辑留在本模块，路由只负责 HTTP。
+    """
+    docs: dict[str, dict] = {}
+    label = _label_expr()
+    for source, tag in source_tags.items():
+        rows = db.query(models.Review.text, label).filter(
+            models.Review.anime_id == anime_id,
+            models.Review.source == tag).limit(per_source_limit).all()
+        pos = [t for t, lab in rows if lab == "positive" and t]
+        neg = [t for t, lab in rows if lab == "negative" and t]
+        if pos or neg:
+            docs[source] = {"pos": pos, "neg": neg}
+    return build_source_terms(docs, top_n=top_n)
+
+
 # --------------------------------------------------------------------------- #
 # 可视化聚合（App 图表一次拿全）
 # --------------------------------------------------------------------------- #
