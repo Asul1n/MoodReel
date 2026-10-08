@@ -5,6 +5,7 @@
 > 日期：2026-09-02 ｜ 状态：已确认
 
 > **修订记录**
+> - 2026-10-08 新增**用户认证模块**：`users` 表 + `/auth` 接口（register/login 必做，me/logout 预留）；App 为**游客模式**（登录可选，主流程不强制登录），前端已实现登录/注册页与登录态持久化，后端按 §4/§6 新增内容实现。
 > - 2026-09-05 对照实现全面校对，主要对齐点：
 >   1. 中文通道落地为 **本地 TextCNN_zh 优先 + DeepSeek 在线兜底**（腾讯 adapter 保留为备选、未接入路由）；
 >   2. 模型产物为 `backend/models/model.pt`（英文）/ `model_zh.pt`（中文），不再使用 npz 导出；
@@ -70,8 +71,8 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 │                        │◄─────────►│  ├ dataset   语料:浏览/筛选/新增/统计        │
 │  Tab1 主页  采集→分析→   │          │  ├ crawl     双源爬虫(IMDB/豆瓣)+job进度     │
 │        热点→可视化(单页) │          │  ├ sentiment TextCNN(英)+TextCNN_zh(中,优先) │
-│  Tab2 设置  夜间模式/    │          │  │           /DeepSeek(中,兜底)            │
-│        采集源           │          │  ├ hotspot   热点词/褒贬倾向词/词云数据        │
+│  Tab2 设置  后端地址/    │          │  │           /DeepSeek(中,兜底)            │
+│        夜间模式/采集源    │          │  ├ hotspot   热点词/褒贬倾向词/词云数据        │
 │                        │          │  ├ viz       图表聚合 + 词云 PNG             │
 │                        │          │  └ health/   探活与模型就绪                  │
 └────────────────────────┘          └───────────┬──────────┬─────────────────┘
@@ -110,7 +111,7 @@ MoodReel/
 
 ## 4. 数据模型（SQLite）
 
-三张表（同时为报告"数据库设计"一节提供真实素材）：
+四张表（同时为报告"数据库设计"一节提供真实素材）：
 
 **movies**（动态采集影片索引）
 | 字段 | 类型 | 说明 |
@@ -153,6 +154,18 @@ MoodReel/
 | refresh | BOOL | true=强制重抓；false=该片已有评论则复用跳过 |
 | error | TEXT NULL | |
 | created_at | DATETIME | |
+
+**users**（用户认证，2026-10 新增）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK AUTOINCR | 即接口返回的 `user_id` |
+| username | TEXT UNIQUE NOT NULL | 用户名 3~20 字符（中文/字母/数字/下划线，不含空格），重复注册 409 |
+| password_hash | TEXT NOT NULL | 加盐哈希（passlib/bcrypt），绝不存明文 |
+| token | TEXT NULL | 当前登录 token（`secrets.token_hex(32)`），新登录顶掉旧 token（单设备在线） |
+| token_expires_at | DATETIME NULL | 登录后 7 天过期，过期/无效返回 401 |
+| created_at | DATETIME | 注册时间 |
+
+> 鉴权范围：`/auth` 之外的业务接口**暂不校验 token**（游客模式，主流程全可用）；App 将 token 存本地持久化，后续请求经 `Authorization: Bearer <token>` 携带。
 
 老库启动时自动 `ALTER TABLE` 补列（见 `app/db.py` `_migrate`）。可选缓存表 `hotspot_cache`（按上下文 key 缓存热点结果）为预留设计，当前未启用。
 
@@ -215,6 +228,14 @@ MoodReel/
 
 说明：按"可解释路线"实现，不做 LDA 主题模型；词频热度+褒贬倾向已足以支撑"评论热点挖掘"且答辩好讲。
 
+### 5.5 模块五：用户认证（2026-10 新增，游客模式）
+
+- **定位**：轻量用户系统，登录**可选**——未登录（游客）可用全部主流程；登录仅为身份标识与将来的个性化功能（如收藏、个人分析历史）。
+- **账号形态**：用户名 + 密码（用户名 3~20 字符、密码 6~20 位，前后端双重校验）。
+- **接口**：`POST /auth/register`（201；用户名重复 409）、`POST /auth/login`（签发 token，凭据错误 401）必做；`GET /auth/me`、`POST /auth/logout` 预留（前端暂未调用，前端登出为本地清 token）。
+- **token**：服务端生成随机串存 `users.token`，7 天过期，单设备在线（新登录顶旧 token）；请求经 `Authorization: Bearer <token>` 携带。
+- **安全**：密码 passlib/bcrypt 加盐哈希；内网明文 http 联调（与现有接口一致），报告注明生产环境须 https。
+
 ### 5.4 模块四：可视化展示
 
 - 图表用 **ArkUI Canvas 自绘小工具库**（环形/条形/褒贬对比/趋势），不依赖第三方图表 SDK，避免版本坑；
@@ -244,6 +265,10 @@ MoodReel/
 | GET /hotspot | 热点词/褒贬词/词云数据 | context, top_n | `{keywords[], cloud[], polarity{pos[],neg[]}, total_reviews}` |
 | GET /viz/summary | 可视化聚合 | context, top_n | `{dist, trend, top_words, cloud, polarity, by_source, avg_confidence, movie}` |
 | GET /viz/wordcloud | 词云 PNG 图片 | context, top_n | `image/png` |
+| POST /auth/register | 用户注册 | username, password | **201** `{user_id, username, created_at}`；用户名重复 **409** |
+| POST /auth/login | 登录签发 token | username, password | `{token, user:{user_id, username}}`；凭据错误 **401** |
+| GET /auth/me | 当前用户信息（可选实现） | Header `Authorization: Bearer <token>` | `{user_id, username, created_at}`；无效 **401** |
+| POST /auth/logout | 退出登录（可选实现） | Header 同上 | `{ok: true}` |
 
 错误处理：FastAPI 标准 `{"detail": "中文可读"}` + 合适的 HTTP 状态码。
 
@@ -312,7 +337,7 @@ MoodReel/
 | 数据字典 | 第 4 节表字段 + 第 6 节出参可写成数据流字典 |
 | 需求分析 · 功能/数据/行为模型 | 第 2 节用例 + 四模块功能点 + 上下文切换 |
 | 总体设计 · 软件结构 | 第 3、5 节模块划分；按模块补 IPO |
-| 数据库设计 | 第 4 节三张表（含字段/主键/说明） |
+| 数据库设计 | 第 4 节四张表（含字段/主键/说明） |
 | 详细设计 · 算法 | TextCNN 前向、热点词频/褒贬词公式、爬虫伪代码、jieba 流程、DeepSeek 调用 |
 | 性能/测试结论 | 第 7、9 节（准确率、吞吐脚本输出贴图） |
 
@@ -332,4 +357,4 @@ MoodReel/
 
 - 豆瓣星级 vs 预测的"真实新数据准确率"对照页
 - 上传华为开发者社区的 HAP 版本（清掉硬编码密钥）
-- 设置页图形化配置后端地址 + 「测试连接」（当前为 `Constants.ets` 改常量）
+- ~~设置页图形化配置后端地址 + 「测试连接」~~（**已实现**：TabSettings 地址输入 + 测试连接(`/health`) + 恢复默认，地址经 `PersistentStorage` 持久化，运行时 `getBaseUrl()` 读取）

@@ -21,11 +21,11 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 ┌────────────────────────┐          ┌──────────────────────────────────────┐
 │  HarmonyOS App (ArkTS)  │  HTTP/JSON│  FastAPI 服务中枢 (Python)            │
 │                        │◄─────────►│  ├ dataset  语料:浏览/筛选/新增/统计      │
-│  Tab1 采集  抓取/语料     │          │  ├ crawl    双源爬虫(IMDB/豆瓣)+job进度   │
-│  Tab2 情感  单条/批量     │          │  ├ sentiment TextCNN(英文)+DeepSeek(中文) │
-│  Tab3 热点  词云/褒贬词   │          │  ├ hotspot  TF-IDF/高频词/褒贬倾向词       │
-│  Tab4 可视化 图表         │          │  ├ viz      可视化聚合                    │
-│  Tab5 设置  后端地址/开关  │          │  └ health/ 探活与模型就绪                │
+│  Tab1 主页  采集→分析→   │          │  ├ crawl    双源爬虫(IMDB/豆瓣)+job进度   │
+│        热点→可视化(单页) │          │  ├ sentiment TextCNN(英文)+DeepSeek(中文) │
+│  Tab2 设置  后端地址/    │          │  ├ hotspot  TF-IDF/高频词/褒贬倾向词       │
+│        夜间模式/采集源    │          │  ├ viz      可视化聚合                    │
+│                          │          │  └ health/ 探活与模型就绪                │
 └────────────────────────┘          └───────────┬──────────┬───────────────┘
                                                 │          │ (requests, 节流)
                                         SQLite(语料/结果)    IMDB / 豆瓣网页
