@@ -1,12 +1,17 @@
-// 极简 HTTP 封装（@ohos.net.http），返回响应体字符串，非 200 抛错（带后端中文错误信息）
+// 极简 HTTP 封装（@ohos.net.http），返回响应体字符串，非 2xx 抛错（带后端中文错误信息）
 import { http } from '@kit.NetworkKit';
-import { BASE_URL } from '../common/Constants';
+import { getBaseUrl } from '../common/Constants';
 
-interface HttpHeader {
-  'Content-Type': string;
+// 统一请求头：JSON；本地已登录时自动附带 Authorization（/auth 系列接口用，
+// 其余后端接口不读该头，无副作用）
+function buildHeader(): Record<string, string> {
+  const header: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token: string | undefined = AppStorage.get<string>('authToken');
+  if (token !== undefined && token.length > 0) {
+    header['Authorization'] = `Bearer ${token}`;
+  }
+  return header;
 }
-
-const JSON_HEADER: HttpHeader = { 'Content-Type': 'application/json' };
 
 // 后端错误响应体（FastAPI detail / 契约 message）
 interface ErrorBody {
@@ -33,8 +38,9 @@ function extractError(res: http.HttpResponse): string {
 export async function getText(path: string): Promise<string> {
   const req = http.createHttp();
   try {
-    const res = await req.request(BASE_URL + path, {
+    const res = await req.request(getBaseUrl() + path, {
       method: http.RequestMethod.GET,
+      header: buildHeader(),
       expectDataType: http.HttpDataType.STRING,
       connectTimeout: 10000,
       readTimeout: 10000
@@ -51,9 +57,9 @@ export async function getText(path: string): Promise<string> {
 export async function postText(path: string, body: string): Promise<string> {
   const req = http.createHttp();
   try {
-    const res = await req.request(BASE_URL + path, {
+    const res = await req.request(getBaseUrl() + path, {
       method: http.RequestMethod.POST,
-      header: JSON_HEADER,
+      header: buildHeader(),
       extraData: body,
       expectDataType: http.HttpDataType.STRING,
       connectTimeout: 10000,

@@ -1,7 +1,17 @@
 // 常量
 
-// 后端服务地址（联调时改为宿主机局域网 IP 或模拟器 10.0.2.2）
+// 后端服务地址默认值（联调时改为宿主机局域网 IP 或模拟器 10.0.2.2）
+// 实际使用值可在 App「设置」页修改，改后存 AppStorage['baseUrl'] 并持久化
 export const BASE_URL: string = 'http://192.168.10.183:8000';
+
+// 运行时实际使用的后端地址：设置页配置过就用配置的，否则用默认值
+export function getBaseUrl(): string {
+  const saved: string | undefined = AppStorage.get<string>('baseUrl');
+  if (saved === undefined || saved.length === 0) {
+    return BASE_URL;
+  }
+  return saved;
+}
 
 // 采集源选项（设置页选择，主页搜索时读取）
 export interface SourceOption {

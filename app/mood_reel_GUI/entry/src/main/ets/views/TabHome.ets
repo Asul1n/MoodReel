@@ -1,6 +1,6 @@
 // 主页：搜索电影名 → 触发抓取 → 展示情感分析结果
 import { Movie, Review, KeywordItem, SentimentDist, PolarityData, TrendDay, HistoryItem } from '../model/Models';
-import { sentimentMeta, BASE_URL } from '../common/Constants';
+import { sentimentMeta, getBaseUrl } from '../common/Constants';
 import {
   crawlMovie,
   getCrawlStatus,
@@ -152,9 +152,9 @@ export struct TabHome {
     return pct.toFixed(1);
   }
 
-  // 契约 §5：本地海报以 / 开头拼 BASE_URL；豆瓣外链直接用
+  // 契约 §5：本地海报以 / 开头拼后端地址；豆瓣外链直接用
   private posterUrl(poster: string): string {
-    return poster.startsWith('/') ? BASE_URL + poster : poster;
+    return poster.startsWith('/') ? getBaseUrl() + poster : poster;
   }
 
   @Builder
@@ -403,7 +403,7 @@ export struct TabHome {
             RevealCard() {
               Column() {
                 this.sectionTitle('词云');
-                Image(`${BASE_URL}/viz/wordcloud?context=movie:${this.movie.movie_id}&top_n=40`)
+                Image(`${getBaseUrl()}/viz/wordcloud?context=movie:${this.movie.movie_id}&top_n=40`)
                   .width('100%')
                   .aspectRatio(1.6)
                   .objectFit(ImageFit.Contain)
