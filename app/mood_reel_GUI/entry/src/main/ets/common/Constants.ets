@@ -2,7 +2,7 @@
 
 // 后端服务地址默认值（联调时改为宿主机局域网 IP 或模拟器 10.0.2.2）
 // 实际使用值可在 App「设置」页修改，改后存 AppStorage['baseUrl'] 并持久化
-export const BASE_URL: string = 'http://192.168.10.183:8000';
+export const BASE_URL: string = 'http://10.252.24.229:8000';
 
 // 运行时实际使用的后端地址：设置页配置过就用配置的，否则用默认值
 export function getBaseUrl(): string {
