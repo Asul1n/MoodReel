@@ -139,3 +139,28 @@ export async function loginAuth(username: string, password: string): Promise<Log
   const text = await postText('/auth/login', body);
   return JSON.parse(text) as LoginOut;
 }
+
+// ===== 为你推荐（契约见 docs/3_接口契约文档.md「推荐约定」）=====
+
+// 推荐条目（reason：个性化模式为命中标签如"科幻 ×2 · 冒险 ×1"，hot 模式为"近期热门"或空串）
+export interface RecommendItem {
+  movie_id: string;
+  title: string;
+  poster: string;
+  rating: number;
+  genres: string;
+  reason: string;
+}
+
+// GET /recommend 响应（mode: personalized / hot）
+export interface RecommendOut {
+  mode: string;
+  items: RecommendItem[];
+}
+
+// 获取推荐：登录→个性化标签推荐；游客/冷启动→热点兜底
+// token 由 http.ets 自动附带，后端对无效 token 自动降级 hot（不报 401）
+export async function fetchRecommend(limit: number): Promise<RecommendOut> {
+  const text = await getText(`/recommend?limit=${limit}`);
+  return JSON.parse(text) as RecommendOut;
+}
