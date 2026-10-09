@@ -1,7 +1,14 @@
-// 登录 / 注册页：设置页「去登录」进入，成功后写登录态并返回（游客可随时跳过，不影响主流程）
-// 表单校验与后端契约一致：用户名 3~20 字符、密码 6~20 位；注册成功自动登录
+// 登录 / 注册页：开屏后未登录自动进入（底部提供游客入口），设置页「去登录」亦可进入
+// 蓝白渐变简洁风（配色固定，不随夜间主题变化）；校验口径与后端契约一致：用户名 3~20 字符、密码 6~20 位
 import { router } from '@kit.ArkUI';
 import { loginAuth, registerAuth } from '../services/api';
+
+// 页面固定配色（蓝白简洁风，独立于全局主题色）
+const COLOR_PRIMARY: string = '#1890FF';
+const COLOR_MAIN_TEXT: string = '#1A2C3E';
+const COLOR_SUB_TEXT: string = '#8A94A6';
+const COLOR_INPUT_BG: string = '#F5F7FA';
+const COLOR_ERROR: string = '#C62828';
 
 @Entry
 @Component
@@ -34,6 +41,16 @@ struct AuthPage {
     AppStorage.setOrCreate('authUsername', username);
   }
 
+  // 离开本页：从设置页进入（栈里已有主页）则返回；从开屏进入则进主页
+  // 注意：router.getLength() 返回 string（API 历史设计），需转数字再比较
+  private leavePage(): void {
+    if (Number(router.getLength()) > 1) {
+      router.back();
+    } else {
+      router.replaceUrl({ url: 'pages/Index' });
+    }
+  }
+
   private async submit(): Promise<void> {
     const err = this.validate();
     if (err !== '') {
@@ -49,7 +66,7 @@ struct AuthPage {
       }
       const out = await loginAuth(name, this.password);
       this.saveLoginState(out.token, out.user.username);
-      router.back();
+      this.leavePage();
     } catch (err) {
       const e = err as Error;
       this.errorMsg = e.message;
@@ -63,13 +80,13 @@ struct AuthPage {
     Column() {
       Text(title)
         .fontSize(16)
-        .fontWeight(!this.isRegister === mode ? FontWeight.Bold : FontWeight.Normal)
-        .fontColor(!this.isRegister === mode ? $r('app.color.accent') : $r('app.color.text_secondary'));
+        .fontWeight(this.isRegister === mode ? FontWeight.Bold : FontWeight.Normal)
+        .fontColor(this.isRegister === mode ? COLOR_PRIMARY : COLOR_SUB_TEXT);
       Row()
-        .width(28)
+        .width(26)
         .height(3)
         .borderRadius(1.5)
-        .backgroundColor(!this.isRegister === mode ? $r('app.color.accent') : Color.Transparent)
+        .backgroundColor(this.isRegister === mode ? COLOR_PRIMARY : Color.Transparent)
         .margin({ top: 4 });
     }
     .layoutWeight(1)
@@ -83,29 +100,30 @@ struct AuthPage {
   build() {
     Stack() {
       Column() {
-        // Logo + 标题（呼应开屏页）
+        // 顶部品牌区（蓝色渐变段内，白色文字）
         Column() {
           Text('🎬')
             .fontSize(34)
-            .fontColor('#FFFFFF');
+            .fontColor(COLOR_PRIMARY);
         }
         .width(72)
         .height(72)
         .borderRadius(36)
-        .backgroundColor('#1890FF')
-        .justifyContent(FlexAlign.Center);
+        .backgroundColor('#FFFFFF')
+        .justifyContent(FlexAlign.Center)
+        .shadow({ radius: 14, color: '#2610427A', offsetX: 0, offsetY: 4 });
 
         Text('MoodReel')
-          .fontSize(24)
+          .fontSize(26)
           .fontWeight(FontWeight.Bold)
           .fontColor('#FFFFFF')
-          .margin({ top: 14 });
-        Text(this.isRegister ? '注册账号，记录你的观影观点' : '登录后同步你的分析记录')
+          .margin({ top: 16 });
+        Text('电影评论情感分析')
           .fontSize(13)
-          .fontColor('#B8C4D0')
-          .margin({ top: 6 });
+          .fontColor('#E4F0FF')
+          .margin({ top: 4 });
 
-        // 表单卡片
+        // 表单卡片（白色浮层）
         Column() {
           // 登录 / 注册切换
           Row() {
@@ -113,7 +131,7 @@ struct AuthPage {
             this.modeTab(true, '注册');
           }
           .width('100%')
-          .margin({ bottom: 16 });
+          .margin({ bottom: 20 });
 
           TextInput({ placeholder: '用户名（3~20 字符）', text: this.username })
             .onChange((value: string) => {
@@ -121,7 +139,9 @@ struct AuthPage {
             })
             .height(44)
             .fontSize(15)
-            .backgroundColor($r('app.color.page_background'))
+            .fontColor(COLOR_MAIN_TEXT)
+            .placeholderColor('#A8B3C1')
+            .backgroundColor(COLOR_INPUT_BG)
             .borderRadius(10);
 
           TextInput({ placeholder: '密码（6~20 位）', text: this.password })
@@ -131,7 +151,9 @@ struct AuthPage {
             })
             .height(44)
             .fontSize(15)
-            .backgroundColor($r('app.color.page_background'))
+            .fontColor(COLOR_MAIN_TEXT)
+            .placeholderColor('#A8B3C1')
+            .backgroundColor(COLOR_INPUT_BG)
             .borderRadius(10)
             .margin({ top: 12 });
 
@@ -143,7 +165,9 @@ struct AuthPage {
               })
               .height(44)
               .fontSize(15)
-              .backgroundColor($r('app.color.page_background'))
+              .fontColor(COLOR_MAIN_TEXT)
+              .placeholderColor('#A8B3C1')
+              .backgroundColor(COLOR_INPUT_BG)
               .borderRadius(10)
               .margin({ top: 12 });
           }
@@ -151,16 +175,17 @@ struct AuthPage {
           Button(this.submitting ? '请稍候…' : (this.isRegister ? '注 册' : '登 录'))
             .width('100%')
             .height(44)
-            .margin({ top: 18 })
+            .margin({ top: 20 })
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
-            .backgroundColor($r('app.color.accent'))
+            .backgroundColor(COLOR_PRIMARY)
             .fontColor('#FFFFFF')
+            .borderRadius(22)
             .enabled(!this.submitting)
             .scale({ x: this.btnScale, y: this.btnScale })
             .onTouch((event: TouchEvent) => {
               if (event.type === TouchType.Down) {
-                this.btnScale = 0.96;
+                this.btnScale = 0.97;
               } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
                 this.btnScale = 1;
               }
@@ -173,18 +198,28 @@ struct AuthPage {
           if (this.errorMsg !== '') {
             Text(this.errorMsg)
               .fontSize(13)
-              .fontColor('#C62828')
+              .fontColor(COLOR_ERROR)
               .width('100%')
               .margin({ top: 12 });
           }
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
-        .padding(20)
-        .backgroundColor($r('app.color.card_background'))
-        .borderRadius(16)
-        .shadow({ radius: 16, color: '#14000A1E', offsetX: 0, offsetY: 2 })
-        .margin({ top: 28 });
+        .padding({ left: 20, right: 20, top: 18, bottom: 24 })
+        .backgroundColor('#FFFFFF')
+        .borderRadius(20)
+        .shadow({ radius: 24, color: '#1A1890FF', offsetX: 0, offsetY: 6 })
+        .margin({ top: 36 });
+
+        // 游客入口（主按钮下方，次级样式保持简洁）
+        Text('暂不登录，以游客身份进入 →')
+          .fontSize(14)
+          .fontColor('#4E88C7')
+          .margin({ top: 22 })
+          .padding({ top: 8, bottom: 8, left: 16, right: 16 })
+          .onClick(() => {
+            this.leavePage();
+          });
       }
       .width('100%')
       .padding({ left: 24, right: 24 })
@@ -194,7 +229,7 @@ struct AuthPage {
     .height('100%')
     .linearGradient({
       direction: GradientDirection.Bottom,
-      colors: [['#1A2C3E', 0.0], ['#0D1A2B', 1.0]]
+      colors: [['#1890FF', 0.0], ['#6FB0FF', 0.28], ['#FFFFFF', 0.68]]
     });
   }
 }
