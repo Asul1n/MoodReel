@@ -24,9 +24,9 @@
 
 | 页面 | 功能 | 主要后端接口 |
 |---|---|---|
-| Tab1 主页 | 输入片名→发起抓取→轮询进度→影片信息（简介/海报/评分）→情感分布（环形图）→评论列表（分页/展开）→Top 热点词（条形图）→褒贬倾向词→词云（PNG）→评论趋势（双柱图） | `POST /crawl` `GET /crawl/{id}` `GET /crawl/movies` `GET /crawl/movie/{id}` `POST /analyze/backfill` `GET /dataset/stats` `GET /dataset/reviews` `GET /hotspot` `GET /viz/summary` `GET /viz/wordcloud` |
+| Tab1 主页 | 「为你推荐」横滑卡片（个性化/热点，点卡片直达分析）→输入片名→发起抓取→轮询进度→影片信息（简介/海报/评分）→情感分布（环形图）→评论列表（分页/展开）→Top 热点词（条形图）→褒贬倾向词→词云（PNG）→评论趋势（双柱图） | `GET /recommend` `POST /crawl` `GET /crawl/{id}` `GET /crawl/movies` `GET /crawl/movie/{id}` `POST /analyze/backfill` `GET /dataset/stats` `GET /dataset/reviews` `GET /hotspot` `GET /viz/summary` `GET /viz/wordcloud` |
 | Tab2 设置 | 用户卡片（去登录/退出登录）、后端地址、测试连接(`/health`)、夜间模式、采集源选择 | `GET /health` |
-| 登录/注册页（AuthPage） | 登录/注册切换、表单校验、注册成功自动登录（游客模式：主流程不强制登录） | `POST /auth/register` `POST /auth/login` |
+| 登录/注册页（AuthPage） | 开屏后未登录自动进入；登录/注册切换、表单校验、注册成功自动登录、底部「游客进入」（游客可用全部主流程） | `POST /auth/register` `POST /auth/login` |
 
 ## 建议模块划分（entry/src/main/ets/）
 

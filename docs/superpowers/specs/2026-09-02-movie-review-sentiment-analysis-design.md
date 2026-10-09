@@ -5,6 +5,7 @@
 > 日期：2026-09-02 ｜ 状态：已确认
 
 > **修订记录**
+> - 2026-10-09 新增**个性化推荐模块**：`search_events` 表 + `GET /recommend` 接口（登录→基于 genres 标签画像的可解释推荐；游客/冷启动→热点兜底），搜索行为由 `POST /crawl` 顺带记录、无新增上报接口。
 > - 2026-10-08 新增**用户认证模块**：`users` 表 + `/auth` 接口（register/login 必做，me/logout 预留）；App 为**游客模式**（登录可选，主流程不强制登录），前端已实现登录/注册页与登录态持久化，后端按 §4/§6 新增内容实现。
 > - 2026-09-05 对照实现全面校对，主要对齐点：
 >   1. 中文通道落地为 **本地 TextCNN_zh 优先 + DeepSeek 在线兜底**（腾讯 adapter 保留为备选、未接入路由）；
@@ -111,7 +112,7 @@ MoodReel/
 
 ## 4. 数据模型（SQLite）
 
-四张表（同时为报告"数据库设计"一节提供真实素材）：
+五张表（同时为报告"数据库设计"一节提供真实素材）：
 
 **movies**（动态采集影片索引）
 | 字段 | 类型 | 说明 |
@@ -164,6 +165,17 @@ MoodReel/
 | token | TEXT NULL | 当前登录 token（`secrets.token_hex(32)`），新登录顶掉旧 token（单设备在线） |
 | token_expires_at | DATETIME NULL | 登录后 7 天过期，过期/无效返回 401 |
 | created_at | DATETIME | 注册时间 |
+
+**search_events**（用户搜索行为，推荐画像数据源，2026-10 新增）
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | INTEGER PK AUTOINCR | |
+| user_id | INT NULL | 关联 users.id；仅登录用户记录，游客不写 |
+| movie_id | TEXT | 搜索并成功匹配到的影片 |
+| keyword | TEXT NULL | 用户原始搜索词 |
+| created_at | DATETIME | 搜索时间 |
+
+> 写入时机：`POST /crawl` 成功匹配影片时顺带记录（带有效 token 才写）；画像由 Python 侧实时聚合，不建冗余表；同影片去重计一次。
 
 > 鉴权范围：`/auth` 之外的业务接口**暂不校验 token**（游客模式，主流程全可用）；App 将 token 存本地持久化，后续请求经 `Authorization: Bearer <token>` 携带。
 
@@ -230,11 +242,23 @@ MoodReel/
 
 ### 5.5 模块五：用户认证（2026-10 新增，游客模式）
 
-- **定位**：轻量用户系统，登录**可选**——未登录（游客）可用全部主流程；登录仅为身份标识与将来的个性化功能（如收藏、个人分析历史）。
+- **定位**：轻量用户系统，登录**可选**——开屏后未登录自动进入登录/注册页（底部提供「游客进入」），未登录（游客）可用全部主流程；登录仅为身份标识与将来的个性化功能（如收藏、个人分析历史）。
 - **账号形态**：用户名 + 密码（用户名 3~20 字符、密码 6~20 位，前后端双重校验）。
 - **接口**：`POST /auth/register`（201；用户名重复 409）、`POST /auth/login`（签发 token，凭据错误 401）必做；`GET /auth/me`、`POST /auth/logout` 预留（前端暂未调用，前端登出为本地清 token）。
 - **token**：服务端生成随机串存 `users.token`，7 天过期，单设备在线（新登录顶旧 token）；请求经 `Authorization: Bearer <token>` 携带。
 - **安全**：密码 passlib/bcrypt 加盐哈希；内网明文 http 联调（与现有接口一致），报告注明生产环境须 https。
+
+### 5.6 模块六：个性化推荐（2026-10 新增，可解释的内容推荐）
+
+- **定位**：基于用户搜索行为的轻量推荐，展示为主页「为你推荐」横滑卡片，点卡片直达该片分析（复用 `movie:{id}` 全流程）。
+- **算法（基于内容 / content-based）**：
+  1. 画像 = 用户 `search_events` 中影片（去重）的 `genres` 标签聚合，每片每标签贡献 `1/标签数`（防"剧情"大众标签主导）；
+  2. 候选 = 未搜索过的影片，得分 = 各标签在用户向量中的权重之和，Top-N 返回；
+  3. **冷启动**（游客/无画像）→ 热点兜底：按 `review_count` 降序取 N 部（并列取最新）；
+  4. **可解释**：每张卡片返回 `reason`（如 `"科幻 ×2 · 冒险 ×1"`），前端直接展示。
+- **接口**：`GET /recommend?limit=6` → `{mode: personalized|hot, items[]}`；token 无效自动降级 hot（不报 401，优雅降级）。
+- **行为记录**：无新增上报接口，`POST /crawl` 成功时顺带写 `search_events`。
+- **报告口径**：标签权重公式、冷启动策略、推荐可解释性；可选量化指标 = 推荐结果与用户画像的标签重合率。
 
 ### 5.4 模块四：可视化展示
 
@@ -269,6 +293,7 @@ MoodReel/
 | POST /auth/login | 登录签发 token | username, password | `{token, user:{user_id, username}}`；凭据错误 **401** |
 | GET /auth/me | 当前用户信息（可选实现） | Header `Authorization: Bearer <token>` | `{user_id, username, created_at}`；无效 **401** |
 | POST /auth/logout | 退出登录（可选实现） | Header 同上 | `{ok: true}` |
+| GET /recommend | 为你推荐（个性化/热点双模式） | limit(默认6,≤20) | `{mode, items:[{movie_id, title, poster, rating, genres, reason}]}` |
 
 错误处理：FastAPI 标准 `{"detail": "中文可读"}` + 合适的 HTTP 状态码。
 
@@ -337,7 +362,7 @@ MoodReel/
 | 数据字典 | 第 4 节表字段 + 第 6 节出参可写成数据流字典 |
 | 需求分析 · 功能/数据/行为模型 | 第 2 节用例 + 四模块功能点 + 上下文切换 |
 | 总体设计 · 软件结构 | 第 3、5 节模块划分；按模块补 IPO |
-| 数据库设计 | 第 4 节四张表（含字段/主键/说明） |
+| 数据库设计 | 第 4 节五张表（含字段/主键/说明） |
 | 详细设计 · 算法 | TextCNN 前向、热点词频/褒贬词公式、爬虫伪代码、jieba 流程、DeepSeek 调用 |
 | 性能/测试结论 | 第 7、9 节（准确率、吞吐脚本输出贴图） |
 
