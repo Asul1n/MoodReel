@@ -12,6 +12,33 @@ FastAPI + SQLAlchemy(SQLite)。承载四块能力，均通过 REST 暴露给 Har
 
 ## 运行配置（本地开发）
 
+### 一键启动（推荐）
+
+第一次跑会自动建虚拟环境、装依赖、从 `.env.example` 复制 `.env`，之后直接启动：
+
+```bat
+:: Windows
+cd backend
+start.bat              :: 默认 http://0.0.0.0:8000
+start.bat 8001         :: 换端口
+start.bat dev          :: 端口 8000 + uvicorn --reload 热重载
+start.bat dev 8001     :: 换端口 + 热重载
+```
+
+```bash
+# Linux / WSL / macOS
+cd backend
+./start.sh             # 默认 0.0.0.0:8000
+./start.sh 8001
+./start.sh dev
+```
+
+> Windows 上如果 `backend/.venv` 是 WSL 建的 Linux 布局（只有 `bin/` 没有 `Scripts/`），
+> `start.bat` **不会动它**，而是在 `.venv-win` 另建一套 Windows 环境（已 gitignore）。
+> 脚本不装 torch：缺 torch 时上游只影响 `/analyze/en`，启动时会打印警告和补装命令。
+
+### 手动启动
+
 需要 **Python 3.10+**：
 
 ```bash

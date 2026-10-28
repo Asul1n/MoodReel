@@ -11,6 +11,8 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+# start.bat 在 Windows 上另建的虚拟环境（.venv 可能是 WSL/Linux 布局）
+.venv-win/
 .pytest_cache/
 *.egg-info/
 .mypy_cache/

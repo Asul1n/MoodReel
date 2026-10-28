@@ -1,0 +1,10 @@
+# 统一换行策略：脚本跨平台可执行（Windows 用 cmd，Linux/WSL 用 bash）
+* text=auto
+
+# bash 脚本必须 LF，否则 WSL/Linux 下 shebang 失效
+*.sh        text eol=lf
+*.bash      text eol=lf
+
+# 批处理必须 CRLF，否则 cmd 解析 goto/if 会报"命令语法不正确"
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
