@@ -11,7 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from . import config
 from .db import init_db
 from .logging_config import logger, setup_logging
-from .routers import anime, crawl, dataset, divergence, hotspot, sentiment, viz
+from .routers import (anime, auth, crawl, dataset, divergence, hotspot,
+                      recommend, sentiment, viz)
 from .services import textcnn, textcnn_zh
 
 setup_logging()
@@ -58,6 +59,8 @@ app.include_router(sentiment.router)
 app.include_router(hotspot.router)
 app.include_router(viz.router)
 app.include_router(divergence.router)
+app.include_router(auth.router)        # 用户认证（2026-10）
+app.include_router(recommend.router)   # 为你推荐（2026-10）
 
 # 本地静态资源（下载到本地的海报等）
 config.STATIC_DIR.mkdir(parents=True, exist_ok=True)

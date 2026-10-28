@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from .. import models
 from ..crawler import runner, samples
 from ..db import get_db
+from ..services import auth
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
 
@@ -73,8 +74,14 @@ def movie_detail(movie_id: str, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("", status_code=201)
-def start_crawl(payload: CrawlStart, db: Session = Depends(get_db)) -> dict:
-    """登记任务并交给后台线程执行（runner）。"""
+def start_crawl(payload: CrawlStart,
+                user_id: int | None = Depends(auth.optional_user_id),
+                db: Session = Depends(get_db)) -> dict:
+    """登记任务并交给后台线程执行（runner）。
+
+    带有效 token 时把 user_id 传下去：任务成功匹配到影片后由 runner 顺带写一条
+    `search_events`（契约「推荐约定」：不新增上报接口）；游客/无效 token 为 None。
+    """
     job = models.CrawlJob(
         job_id=uuid.uuid4().hex,
         source=payload.source,
@@ -86,7 +93,7 @@ def start_crawl(payload: CrawlStart, db: Session = Depends(get_db)) -> dict:
     )
     db.add(job)
     db.commit()
-    runner.start(job.job_id)
+    runner.start(job.job_id, user_id=user_id)
     return {"job_id": job.job_id}
 
 

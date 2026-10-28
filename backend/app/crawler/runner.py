@@ -10,6 +10,7 @@ sample_pack 离线样本兜底（status=degraded）。在线抓取成功后，�
 """
 import logging
 import threading
+from datetime import datetime
 
 import requests
 
@@ -28,12 +29,16 @@ logger = logging.getLogger("moodreel")
 _META_FIELDS = ("title", "year", "intro", "poster", "rating", "genres")
 
 
-def start(job_id: str) -> None:
-    """在后台线程执行任务（不阻塞 HTTP 请求）。"""
-    threading.Thread(target=_run, args=(job_id,), daemon=True).start()
+def start(job_id: str, user_id: int | None = None) -> None:
+    """在后台线程执行任务（不阻塞 HTTP 请求）。
+
+    user_id：请求带有效 token 时由 /crawl 传入，任务成功匹配到影片后顺带写 search_events
+    （契约「搜索行为记录」）；游客传 None，不记录。
+    """
+    threading.Thread(target=_run, args=(job_id, user_id), daemon=True).start()
 
 
-def _run(job_id: str) -> None:
+def _run(job_id: str, user_id: int | None = None) -> None:
     with SessionLocal() as db:
         job = db.get(models.CrawlJob, job_id)
         if job is None or job.status != "pending":
@@ -45,8 +50,27 @@ def _run(job_id: str) -> None:
         except Exception as exc:  # 无论什么异常，任务都不卡死
             db.rollback()
             _set(db, job, status="failed", error=f"采集异常：{exc}")
+        _record_search_event(db, job, user_id)
         logger.info("crawl job=%s source=%s query=%s status=%s fetched=%s",
                     job.job_id, job.source, job.query, job.status, job.fetched)
+
+
+def _record_search_event(db, job, user_id: int | None) -> None:
+    """任务成功匹配到影片且请求带有效 token → 写一条 search_events（推荐画像数据源）。
+
+    失败任务（failed）与游客（user_id=None）不写；异常不影响任务状态。
+    """
+    if not user_id or not job.movie_id or job.status not in ("done", "degraded"):
+        return
+    try:
+        db.add(models.SearchEvent(user_id=user_id, movie_id=job.movie_id,
+                                  keyword=job.query, created_at=datetime.utcnow()))
+        db.commit()
+        logger.info("已记录用户搜索行为 user_id=%s movie=%s keyword=%s",
+                    user_id, job.movie_id, job.query)
+    except Exception as exc:  # 画像数据是附赠，写失败不影响采集结果
+        db.rollback()
+        logger.warning("记录 search_events 失败 user_id=%s job=%s: %s", user_id, job.job_id, exc)
 
 
 def _try_online(db, job) -> bool:
@@ -181,7 +205,10 @@ def _fallback_offline(db, job) -> None:
 
 
 def _store(db, job, movie: MovieRef, source_label: str, items: list) -> None:
-    """把影片 + 影评落库。movie upsert；重复抓取同一 source 先清旧评（幂等）。"""
+    """把影片 + 影评落库。movie upsert；重复抓取同一 source 先清旧评（幂等）。
+
+    同时在 job 上留痕匹配到的 movie_id —— 推荐画像（search_events）靠它判定"搜索成功"。
+    """
     m = db.get(models.Movie, movie.movie_id)
     if m is None:
         m = models.Movie(
@@ -192,6 +219,7 @@ def _store(db, job, movie: MovieRef, source_label: str, items: list) -> None:
     else:
         m.title = movie.title
         m.year = movie.year
+    job.movie_id = movie.movie_id
 
     db.query(models.Review).filter(
         models.Review.movie_id == movie.movie_id,

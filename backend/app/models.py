@@ -137,3 +137,34 @@ class Divergence(Base):
     degraded: Mapped[bool] = mapped_column(Boolean, default=False)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)   # 完整结果 JSON
     computed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ======================= 用户域（认证 + 推荐画像） =======================
+
+
+class User(Base):
+    """用户账号（规格 §2.4）。password_hash 为加盐哈希，任何接口都不得返回。"""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)  # 即接口 user_id
+    username: Mapped[str] = mapped_column(String(20), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(200))
+    token: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # 单设备在线，新登录顶掉旧 token
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class SearchEvent(Base):
+    """用户搜索行为（规格 §2.5）：推荐画像的唯一数据源，不建冗余画像表。
+
+    仅在 POST /crawl 处理成功并匹配到影片、且请求带有效 token 时写入；游客不记录。
+    """
+
+    __tablename__ = "search_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)       # 关联 users.id
+    movie_id: Mapped[str] = mapped_column(String(64), index=True)   # 搜索并成功匹配到的影片
+    keyword: Mapped[str | None] = mapped_column(String(200), nullable=True)  # 用户原始搜索词
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
