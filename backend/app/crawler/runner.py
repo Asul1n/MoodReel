@@ -105,7 +105,7 @@ def _try_online(db, job) -> bool:
                 models.Review.movie_id == movie.movie_id,
                 models.Review.source == live_src).count()
             if existing:
-                _set(db, job, status="done", fetched=existing,
+                _set(db, job, status="done", fetched=existing, movie_id=movie.movie_id,
                      error=f"该片已有 {existing} 条评论，已复用跳过抓取（refresh=true 可强制重抓）")
                 logger.info("影片 %s 已有 %s 条评论，跳过抓取（refresh=true 可强制重抓）",
                             movie.movie_id, existing)
@@ -237,11 +237,15 @@ def _store(db, job, movie: MovieRef, source_label: str, items: list) -> None:
 
 
 def _set(db, job, status: str | None = None, error: str | None = None,
-         fetched: int | None = None) -> None:
+         fetched: int | None = None, movie_id: str | None = None) -> None:
     if status is not None:
         job.status = status
     if error is not None:
         job.error = error
     if fetched is not None:
         job.fetched = fetched
+    if movie_id is not None:
+        # 复用/跳过路径也要留痕匹配到的影片，否则 search_events 会漏记
+        # （推荐画像只认 job.movie_id，缺了就等于用户这次搜索没发生）
+        job.movie_id = movie_id
     db.commit()

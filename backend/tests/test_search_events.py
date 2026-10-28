@@ -4,11 +4,13 @@
 任务处理成功且匹配到影片时由 runner 顺带写一条 search_events；游客/无效 token 不写。
 """
 import uuid
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app import models
 from app.crawler import runner
+from app.crawler.base import MovieRef
 from app.db import SessionLocal
 from app.main import app
 from app.services.auth import hash_password, new_token
@@ -102,3 +104,37 @@ def test_runner_skips_event_for_guest_or_failed_job() -> None:
     job_id = _new_job(query="绝不存在的片名xyz")
     runner._run(job_id, user_id=uid)
     assert _events() == []                            # 失败任务不写
+
+
+def test_runner_records_event_when_reusing_existing_reviews(monkeypatch) -> None:
+    """复用已抓评论（跳过重抓）也必须记录搜索行为。
+
+    回归用例：此前复用分支只置 status=done、没回填 job.movie_id，导致
+    "第二次搜索同一部片"永远写不进 search_events —— 用户会觉得推荐结果永不变化。
+    """
+    uid, _ = _user_with_token()
+    ref = MovieRef(movie_id="douban:9990001", title="复用测试片", source="douban")
+    monkeypatch.setitem(runner.CRAWLERS, "douban",
+                        SimpleNamespace(search=lambda q: [ref]))
+
+    db = SessionLocal()
+    try:  # 预置：该片已有在线评论 -> 走复用跳过分支
+        db.add(models.Movie(movie_id=ref.movie_id, title=ref.title, source="douban"))
+        db.add(models.Review(movie_id=ref.movie_id, source="douban_live",
+                             lang="zh", text="好看"))
+        db.commit()
+    finally:
+        db.close()
+
+    job_id = _new_job(source="douban", query="复用测试片")
+    runner._run(job_id, user_id=uid)
+
+    db = SessionLocal()
+    try:
+        job = db.get(models.CrawlJob, job_id)
+        assert job.status == "done"
+        assert "复用" in job.error                    # 确实走了复用分支
+        assert job.movie_id == ref.movie_id           # 关键：留痕不能丢
+    finally:
+        db.close()
+    assert _events() == [(uid, ref.movie_id, "复用测试片")]
