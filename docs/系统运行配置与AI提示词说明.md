@@ -8,13 +8,13 @@
 
 ## 一、环境要求
 
-| 组件 | 要求 |
-|---|---|
-| 操作系统 | Windows / macOS / Linux 均可（本小组以 Windows + DevEco 为主） |
-| Python | 3.10+ |
-| DevEco Studio | 5.0 及以上，可用的 HarmonyOS NEXT SDK（API ≥ 10） |
-| 模型训练 | 建议 8GB+ 内存；CPU 即可（torch CPU 版），有 NVIDIA GPU 可选 |
-| 网络 | 后端机需外网（调用 DeepSeek、抓取豆瓣/IMDB）；App 与后端同一局域网 |
+| 组件            | 要求                                                   |
+| ------------- | ---------------------------------------------------- |
+| 操作系统          | Windows / macOS / Linux 均可（本小组以 Windows + DevEco 为主） |
+| Python        | 3.10+                                                |
+| DevEco Studio | 5.0 及以上，可用的 HarmonyOS NEXT SDK（API ≥ 10）             |
+| 模型训练          | 建议 8GB+ 内存；CPU 即可（torch CPU 版），有 NVIDIA GPU 可选       |
+| 网络            | 后端机需外网（调用 DeepSeek、抓取豆瓣/IMDB）；App 与后端同一局域网           |
 
 ## 二、代码获取与分支
 
@@ -48,16 +48,16 @@ pip install -r requirements.txt -r requirements-dev.txt
 cp .env.example .env
 ```
 
-| 变量 | 说明 |
-|---|---|
-| MOODREEL_DB | SQLite 路径（默认 `./data/moodreel.db`） |
-| MOODREEL_MODEL_DIR | 模型目录（默认 `./models`） |
+| 变量                                  | 说明                                                           |
+| ----------------------------------- | ------------------------------------------------------------ |
+| MOODREEL_DB                         | SQLite 路径（默认 `./data/moodreel.db`）                           |
+| MOODREEL_MODEL_DIR                  | 模型目录（默认 `./models`）                                          |
 | DEEPSEEK_API_KEY / DEEPSEEK_ENABLED | **中文情感唯一通道**（DeepSeek，二类+置信度）。`platform.deepseek.com` 申请 Key |
-| DOUBAN_COOKIES | 豆瓣登录 **Cookie 完整头**（`bid=…; dbcl2=…; …`），一行一个 |
-| DOUBAN_COOKIES_2 / _3 / _4 / _5 | 第 2~5 个豆瓣账号 Cookie（多账号轮换，提高单片抓取量） |
-| DOUBAN_PROXIES | 代理池，每行一个 `http://user:pass@ip:port`（可选） |
-| DOUBAN_WORKERS | 抓取并发数（默认 `1`，低调；改大前评估被封风险） |
-| HOST / PORT | 监听地址，联调用 `0.0.0.0:8000` |
+| DOUBAN_COOKIES                      | 豆瓣登录 **Cookie 完整头**（`bid=…; dbcl2=…; …`），一行一个                |
+| DOUBAN_COOKIES_2 / _3 / _4 / _5     | 第 2~5 个豆瓣账号 Cookie（多账号轮换，提高单片抓取量）                            |
+| DOUBAN_PROXIES                      | 代理池，每行一个 `http://user:pass@ip:port`（可选）                      |
+| DOUBAN_WORKERS                      | 抓取并发数（默认 `1`，低调；改大前评估被封风险）                                   |
+| HOST / PORT                         | 监听地址，联调用 `0.0.0.0:8000`                                      |
 
 > 情感口径为**统一二类 positive/negative + 置信度**（无 neutral 档）；中文/英文一致。
 
@@ -97,6 +97,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 
 1. 用 DevEco Studio 按 `app/README.md` 在 `app/` 目录创建 **Empty Ability（ArkTS）** 工程，打开运行。
 2. **网络权限**：`entry/src/main/module.json5` 的 `requestPermissions` 增加：
+   
    ```json
    { "name": "ohos.permission.INTERNET" }
    ```
@@ -108,15 +109,15 @@ cd backend && pytest -q        # 期望 26 个用例通过
 
 ## 五、常见问题排查
 
-| 现象 | 处理 |
-|---|---|
-| `curl /health` 不通 | 后端是否启动、HOST 是否为 0.0.0.0、端口占用 |
-| App 提示后端不通 | 设置页换地址/点测试连接；检查同一网络与防火墙放行 8000 |
-| `/analyze/zh`、`/backfill` 返回 503 | `.env` 未配 `DEEPSEEK_API_KEY` 或 `DEEPSEEK_ENABLED` 非 true |
-| `/analyze/en` 返回 503 | 缺 torch 或 `models/model.pt`（`model_ready=false`，看 `model.msg`） |
-| 单片只能抓 ~100 | `.env` 配豆瓣完整 Cookie（`DOUBAN_COOKIES` 等）→ 自动 HTML 深翻到窗口尽头（实测单片可达 ~400） |
-| 词云图打不开 | 是否已重启到含 wordcloud 库的版本；URL 拼对 BASE_URL；INTERNET+明文权限 |
-| `pytest` 报连接/表错误 | 数据库文件损坏时删除 `data/*.db` 重新 `seed_db.py` |
+| 现象                               | 处理                                                                    |
+| -------------------------------- | --------------------------------------------------------------------- |
+| `curl /health` 不通                | 后端是否启动、HOST 是否为 0.0.0.0、端口占用                                          |
+| App 提示后端不通                       | 设置页换地址/点测试连接；检查同一网络与防火墙放行 8000                                        |
+| `/analyze/zh`、`/backfill` 返回 503 | `.env` 未配 `DEEPSEEK_API_KEY` 或 `DEEPSEEK_ENABLED` 非 true              |
+| `/analyze/en` 返回 503             | 缺 torch 或 `models/model.pt`（`model_ready=false`，看 `model.msg`）        |
+| 单片只能抓 ~100                       | `.env` 配豆瓣完整 Cookie（`DOUBAN_COOKIES` 等）→ 自动 HTML 深翻到窗口尽头（实测单片可达 ~400） |
+| 词云图打不开                           | 是否已重启到含 wordcloud 库的版本；URL 拼对 BASE_URL；INTERNET+明文权限                  |
+| `pytest` 报连接/表错误                 | 数据库文件损坏时删除 `data/*.db` 重新 `seed_db.py`                                |
 
 ## 六、AI 提示词说明（AI 辅助开发记录）
 
@@ -131,6 +132,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 ### 6.2 分阶段记录：每个阶段「当时的工程问题 → 核心提示词 → 产物」
 
 **阶段一 · 需求理解与方案设计**
+
 - 思路：先把"题目 12（电影评论情感分析系统）"转成可执行设计，避免一上来就写代码。
 - 核心提示词：
   - "先不写实现：就数据采集、情感分析、热点挖掘、可视化四个模块，给出候选技术路线与 3 人分工，并明确准确率、吞吐等指标如何测定。"
@@ -138,6 +140,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 - 产物：`docs/superpowers/specs/2026-09-02-movie-review-sentiment-analysis-design.md`（分工见规格 §10）。
 
 **阶段二 · 工程骨架与协作规范**
+
 - 思路：多人并行，先把仓库结构与协作纪律立起来，从源头减少冲突。
 - 核心提示词：
   - "搭建 backend（FastAPI）与 app（ArkTS）骨架及 scripts/tests 占位，并按三位成员的分工落位。"
@@ -145,6 +148,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 - 产物：仓库骨架；根 `README.md` §6；本文档前五节。
 
 **阶段三 · 数据采集（爬虫）**
+
 - 思路：按"先离线闭环 → 再真实抓取 → 再提量提稳"三步推进。
 - 核心提示词：
   1. "先实现离线样本包与 runner 的最小闭环：在线源未就绪时自动降级，确保采集链路先整体能跑通。"
@@ -154,6 +158,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 - 产物：`backend/app/crawler/`；灌入 `backend/data/moodreel.db`。
 
 **阶段四 · 情感分析口径与多通道接入**
+
 - 思路：先接队友的英文模型打通链路，再解决中文通道的成本与可用性，最后统一对外口径。
 - 核心提示词：
   - "队友训练好的 TextCNN 以 model.pt 交付，如何在服务端按同结构加载做进程内推理？"
@@ -162,6 +167,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 - 产物：`backend/app/services/`（textcnn / deepseek / analytics）。
 
 **阶段五 · 沉淀自有中文能力**
+
 - 思路：云端通道逐条计费且依赖外网，改用真实采集数据自训中文模型，形成自主可控的分析能力。
 - 核心提示词：
   - "想自训一个中文情感模型：抓十几部影片的真实评论、按星级自动建训练集，jieba 分词 + TextCNN 训练，输出与英文一致的二分类 + 置信度。"
@@ -169,6 +175,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 - 产物：`scripts/train_textcnn_zh.py`、`backend/models/zh/model_zh.pt`、`scripts/benchmark.py`。
 
 **阶段六 · 可视化与前后端联调**
+
 - 思路：让图表贴近真实产品观感，并尽早用队友前端验证契约。
 - 核心提示词：
   - "情感趋势图按自然月聚合、横轴标'年-月'，不要按天打点；词云用成熟库生成真实排版，而不是两三个词占位。"
@@ -177,6 +184,7 @@ cd backend && pytest -q        # 期望 26 个用例通过
 - 产物：可视化相关接口、`backend/static/`、`docs/3_接口契约文档.md`。
 
 **阶段七 · 联调、运行与文档沉淀**
+
 - 思路：让任何一位队友拿到仓库都能独立跑起来，并能从日志直观看出系统在做什么。
 - 核心提示词：
   - "后端如何启动/停止、局域网内队友如何访问、是否需要内网穿透——整理成可直接照做的运行步骤。"
@@ -188,10 +196,10 @@ cd backend && pytest -q        # 期望 26 个用例通过
 
 > 以上阶段记录呈现的是一条从"可用"到"好用"的工程链路：AI 在其中承担展开与落地，方向与质量始终由人把关。本表由组长（成员A）补录；为满足课程"真实可核查"的要求，成员 B / C 请参照同一写法，在自己负责的模块处补录实际使用 AI 时的关键提示词：
 
-| 补录成员 | 模块 | 需补内容 |
-|---|---|---|
-| 成员B | 英文 TextCNN 训练 / 评测 / 腾讯 adapter | 你实际给 AI 的关键提示词与对应产物 |
-| 成员C | ArkTS UI / Canvas 图表 / 前端联调 | 同上 |
+| 补录成员 | 模块                              | 需补内容                |
+| ---- | ------------------------------- | ------------------- |
+| 成员B  | 英文 TextCNN 训练 / 评测 / 腾讯 adapter | 你实际给 AI 的关键提示词与对应产物 |
+| 成员C  | ArkTS UI / Canvas 图表 / 前端联调     | 同上                  |
 
 ### 6.4 成员C 补录（前端 ArkTS UI / Canvas 图表 / 前端联调）
 
@@ -235,3 +243,8 @@ cd backend && pytest -q        # 期望 26 个用例通过
   - "评论分页（初始 5 条 + 更多/收起）、单条评论展开收起、评论间分隔线。"
   - "边等待后端返回数据边渲染已完成的数据（增量渲染，先出影片信息再出图表）。"
 - 产物：前端全部 `.ets` 源码；Git 提交（dev → main 上线）。
+=======
+| 补录成员 | 模块                              | 需补内容                |
+| ---- | ------------------------------- | ------------------- |
+| 成员B  | 英文 TextCNN 训练 / 评测 / 腾讯 adapter | 你实际给 AI 的关键提示词与对应产物 |
+| 成员C  | ArkTS UI / Canvas 图表 / 前端联调     | 同上                  |
