@@ -51,7 +51,7 @@ export struct TabHome {
     this.loadRecommend();
   }
 
-  // 拉取推荐：失败静默隐藏（不打扰主流程，后端未实现前 404 也走这里）
+  // 拉取推荐：失败静默隐藏，不打扰主流程（后端 /recommend 已落地于 2026-10-28）
   private async loadRecommend(): Promise<void> {
     try {
       const out = await fetchRecommend(8);
