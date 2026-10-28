@@ -28,9 +28,14 @@ struct SplashPage {
       this.showLoading = true;
     }, 750);
 
-    // 3. 动画播完延迟 300ms 跳转（replaceUrl 防止返回键回到开屏页）
+    // 3. 动画播完延迟 300ms 跳转：已登录进主页，未登录进登录/注册页（replaceUrl 防止返回键回到开屏页）
     setTimeout(() => {
-      router.replaceUrl({ url: 'pages/Index' });
+      const token: string | undefined = AppStorage.get<string>('authToken');
+      if (token !== undefined && token.length > 0) {
+        router.replaceUrl({ url: 'pages/Index' });
+      } else {
+        router.replaceUrl({ url: 'pages/AuthPage' });
+      }
     }, 2800);
   }
 

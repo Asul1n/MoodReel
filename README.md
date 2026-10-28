@@ -21,19 +21,23 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 ┌────────────────────────┐          ┌──────────────────────────────────────┐
 │  HarmonyOS App (ArkTS)  │  HTTP/JSON│  FastAPI 服务中枢 (Python)            │
 │                        │◄─────────►│  ├ dataset  语料:浏览/筛选/新增/统计      │
-│  Tab1 采集  抓取/语料     │          │  ├ crawl    双源爬虫(IMDB/豆瓣)+job进度   │
-│  Tab2 情感  单条/批量     │          │  ├ sentiment TextCNN(英文)+DeepSeek(中文) │
-│  Tab3 热点  词云/褒贬词   │          │  ├ hotspot  TF-IDF/高频词/褒贬倾向词       │
-│  Tab4 可视化 图表         │          │  ├ viz      可视化聚合                    │
-│  Tab5 设置  后端地址/开关  │          │  └ health/ 探活与模型就绪                │
+│  Tab1 主页  采集→分析→   │          │  ├ crawl    双源爬虫(IMDB/豆瓣)+job进度   │
+│        热点→可视化(单页) │          │  ├ sentiment TextCNN(英文)+DeepSeek(中文) │
+│  Tab2 设置  用户/地址/    │          │  ├ hotspot  TF-IDF/高频词/褒贬倾向词       │
+│        夜间模式/采集源    │          │  ├ viz      可视化聚合                    │
+│  AuthPage  登录/注册     │          │  ├ auth     用户认证(注册/登录/token)      │
+│            (游客可跳过)   │          │  ├ recommend 为你推荐(标签画像)            │
+│                          │          │  └ health/ 探活与模型就绪                │
 └────────────────────────┘          └───────────┬──────────┬───────────────┘
                                                 │          │ (requests, 节流)
-                                        SQLite(语料/结果)    IMDB / 豆瓣网页
+                                        SQLite(五张表)    IMDB / 豆瓣网页
 ```
 
 - **端侧 vs 服务端**：ArkTS 只做 HTTP 调用、状态管理与图表渲染；所有分析逻辑（TextCNN 推理、jieba/TF-IDF、褒贬倾向词）在 Python 侧，利于三人按模块并行。
 - **双通道化解中英错位**：英文影评 → 本地 TextCNN；中文 → DeepSeek。IMDB 50k 只做**训练 + 整库分析**，逐部影片分析走**实时采集集**。
 - **两种分析上下文**：`whole`（IMDB 整库）与 `movie:{id}`（某部采集影片）。
+- **用户系统与推荐（2026-10 新增）**：登录/注册（游客模式，token 7 天）+「为你推荐」（基于搜索行为的可解释标签画像，冷启动推热点），契约与算法口径见 `docs/3_接口契约文档.md`。
+- **用户系统与推荐（2026-10 新增）**：登录/注册（游客模式，token 7 天）+「为你推荐」（基于搜索行为的可解释标签画像，冷启动推热点），契约与算法口径见 `docs/3_接口契约文档.md`。
 
 ## 3. 仓库结构
 
@@ -42,7 +46,7 @@ DevEco 模拟器 / 真机                    宿主机（后端机，需外网�
 │  ├─ app/
 │  │  ├─ main.py           # FastAPI 入口 + /health
 │  │  ├─ config.py db.py models.py schemas.py
-│  │  ├─ routers/          # dataset·crawl·sentiment·hotspot·viz（REST）
+│  │  ├─ routers/          # dataset·crawl·sentiment·hotspot·viz·auth·recommend（REST）
 │  │  ├─ services/         # textcnn(英文) · deepseek(中文) · analytics/nlp(分析) │
 │  │  └─ crawler/          # base·imdb·douban + sample_pack 离线样本       ← 成员A
 │  ├─ scripts/             # download_imdb / seed_db / train_textcnn / benchmark

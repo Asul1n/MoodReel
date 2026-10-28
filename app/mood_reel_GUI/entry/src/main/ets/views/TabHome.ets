@@ -1,6 +1,6 @@
 // 主页：搜索电影名 → 触发抓取 → 展示情感分析结果
 import { Movie, Review, KeywordItem, SentimentDist, PolarityData, TrendDay, HistoryItem } from '../model/Models';
-import { sentimentMeta, BASE_URL } from '../common/Constants';
+import { sentimentMeta, getBaseUrl } from '../common/Constants';
 import {
   crawlMovie,
   getCrawlStatus,
@@ -12,6 +12,8 @@ import {
   fetchKeywords,
   fetchPolarity,
   fetchTrend,
+  fetchRecommend,
+  RecommendItem,
   backfill
 } from '../services/api';
 import { RingChart } from '../components/charts/RingChart';
@@ -25,6 +27,7 @@ export struct TabHome {
   @State keyword: string = '';
   @StorageLink('crawlSource') crawlSource: string = 'douban';
   @StorageLink('searchHistory') searchHistory: HistoryItem[] = [];
+  @StorageLink('authToken') @Watch('onAuthChange') authToken: string = '';
 
   @State searching: boolean = false;
   @State hasResult: boolean = false;
@@ -34,6 +37,40 @@ export struct TabHome {
   @State introExpanded: boolean = false;
   @State reviewCount: number = 5;
   @State expandedReviewId: number = 0;
+
+  // 为你推荐（登录→个性化；游客/冷启动→热点）
+  @State recommendItems: RecommendItem[] = [];
+  @State recommendMode: string = 'hot';
+
+  aboutToAppear(): void {
+    this.loadRecommend();
+  }
+
+  // 登录/退出后推荐模式变化，重新拉取
+  onAuthChange(): void {
+    this.loadRecommend();
+  }
+
+  // 拉取推荐：失败静默隐藏（不打扰主流程，后端未实现前 404 也走这里）
+  private async loadRecommend(): Promise<void> {
+    try {
+      const out = await fetchRecommend(8);
+      this.recommendItems = out.items;
+      this.recommendMode = out.mode;
+    } catch (err) {
+      this.recommendItems = [];
+    }
+  }
+
+  // 点推荐卡片：按 movie_id 前缀还原采集源，复用现有搜索全流程（后端 refresh 复用已有评论，重复分析很快）
+  private onTapRecommend(item: RecommendItem): void {
+    const source: string = item.movie_id.split(':')[0];
+    if (source === 'douban' || source === 'imdb') {
+      this.crawlSource = source;
+    }
+    this.keyword = item.title;
+    this.onSearch();
+  }
 
   @State movie: Movie = { movie_id: '', title: '', year: 0, source: '', source_url: '', intro: '', poster: '', rating: 0, genres: '', review_count: 0 };
   @State dist: SentimentDist = { positive: 0, negative: 0 };
@@ -97,6 +134,7 @@ export struct TabHome {
       this.polarity = await fetchPolarity(context);
       this.trend = await fetchTrend(context);
       this.crawlProgressMsg = '';
+      this.loadRecommend(); // 画像已更新，刷新推荐（不阻塞结果展示）
     } catch (err) {
       const e = err as Error;
       this.hasResult = false;
@@ -152,9 +190,9 @@ export struct TabHome {
     return pct.toFixed(1);
   }
 
-  // 契约 §5：本地海报以 / 开头拼 BASE_URL；豆瓣外链直接用
+  // 契约 §5：本地海报以 / 开头拼后端地址；豆瓣外链直接用
   private posterUrl(poster: string): string {
-    return poster.startsWith('/') ? BASE_URL + poster : poster;
+    return poster.startsWith('/') ? getBaseUrl() + poster : poster;
   }
 
   @Builder
@@ -403,7 +441,7 @@ export struct TabHome {
             RevealCard() {
               Column() {
                 this.sectionTitle('词云');
-                Image(`${BASE_URL}/viz/wordcloud?context=movie:${this.movie.movie_id}&top_n=40`)
+                Image(`${getBaseUrl()}/viz/wordcloud?context=movie:${this.movie.movie_id}&top_n=40`)
                   .width('100%')
                   .aspectRatio(1.6)
                   .objectFit(ImageFit.Contain)
@@ -475,13 +513,80 @@ export struct TabHome {
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center);
       } else {
-        // 空态 + 搜索历史 + 错误提示
+        // 空态 + 为你推荐 + 搜索历史 + 错误提示
         Column() {
           if (this.errorMsg !== '') {
             Text(this.errorMsg)
               .fontSize(14)
               .fontColor('#C62828')
               .margin({ top: 16 });
+          }
+          // 为你推荐（登录→个性化标签推荐；游客/冷启动→热门影片），点卡片直达分析
+          if (this.recommendItems.length > 0) {
+            Row() {
+              Text(this.recommendMode === 'personalized' ? '🎯 为你推荐' : '🔥 热门影片')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor($r('app.color.text_main'));
+              Text(this.recommendMode === 'personalized' ? '按你的观影偏好' : '大家在看')
+                .fontSize(12)
+                .fontColor($r('app.color.text_secondary'))
+                .margin({ left: 8 });
+            }
+            .width('100%')
+            .margin({ top: 20 });
+
+            Scroll() {
+              Row({ space: 10 }) {
+                ForEach(this.recommendItems, (item: RecommendItem) => {
+                  Column() {
+                    Stack({ alignContent: Alignment.TopEnd }) {
+                      Image(this.posterUrl(item.poster))
+                        .width(106)
+                        .height(148)
+                        .objectFit(ImageFit.Cover)
+                        .backgroundColor($r('app.color.track'))
+                        .borderRadius(8);
+                      if (item.rating > 0) {
+                        Text(item.rating.toFixed(1))
+                          .fontSize(11)
+                          .fontColor('#FFFFFF')
+                          .backgroundColor('#CC1A2C3E')
+                          .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                          .borderRadius(8)
+                          .margin(4);
+                      }
+                    }
+                    .width(106);
+
+                    Text(item.title)
+                      .fontSize(13)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor($r('app.color.text_main'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width(106)
+                      .margin({ top: 6 });
+                    Text(item.reason !== '' ? item.reason : item.genres)
+                      .fontSize(10)
+                      .fontColor($r('app.color.accent'))
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width(106)
+                      .margin({ top: 2 });
+                  }
+                  .width(106)
+                  .alignItems(HorizontalAlign.Start)
+                  .onClick(() => {
+                    this.onTapRecommend(item);
+                  });
+                }, (item: RecommendItem) => item.movie_id);
+              }
+              .padding({ top: 10, bottom: 4 });
+            }
+            .scrollable(ScrollDirection.Horizontal)
+            .scrollBar(BarState.Off)
+            .width('100%');
           }
           if (this.searchHistory.length > 0) {
             Row() {
