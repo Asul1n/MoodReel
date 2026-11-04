@@ -12,7 +12,7 @@ from . import config
 from .db import init_db
 from .logging_config import logger, setup_logging
 from .routers import (anime, auth, crawl, dataset, divergence, hotspot,
-                      recommend, sentiment, viz)
+                      insight, recommend, sentiment, viz)
 from .services import textcnn, textcnn_zh
 
 setup_logging()
@@ -61,6 +61,7 @@ app.include_router(viz.router)
 app.include_router(divergence.router)
 app.include_router(auth.router)        # 用户认证（2026-10）
 app.include_router(recommend.router)   # 为你推荐（2026-10）
+app.include_router(insight.router)     # 分组差异显著性（2026-11）
 
 # 本地静态资源（下载到本地的海报等）
 config.STATIC_DIR.mkdir(parents=True, exist_ok=True)
