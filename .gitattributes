@@ -8,3 +8,7 @@
 # 批处理必须 CRLF，否则 cmd 解析 goto/if 会报"命令语法不正确"
 *.bat       text eol=crlf
 *.cmd       text eol=crlf
+
+# CSV 数据禁用换行转换：评论原文里有裸 LF（现有标注集 23 条），
+# 转成 CRLF 会篡改文本，而标注与 evidence 片段要求逐字一致
+*.csv       -text
