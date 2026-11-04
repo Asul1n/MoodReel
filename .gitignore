@@ -25,6 +25,12 @@ venv/
 *.sqlite3
 backend/data/*
 !backend/data/.gitkeep
+# 标注集例外：这是人工标注的 ground truth，属于论文核心资产，必须入库
+# （DB 与抓取缓存可重建，标注无法重建，重标一次要好几个小时）
+!backend/data/annotation/
+!backend/data/annotation/*.csv
+!backend/data/annotation/*.json
+!backend/data/annotation/*.md
 # 模型权重：用 ** 覆盖子目录（models/zh/、models/anime/ 等），
 # 单层 * 只匹配直接子文件，子目录里的权重会漏网被提交
 backend/models/**/*.npz
